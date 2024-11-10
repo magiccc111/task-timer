@@ -9,8 +9,58 @@ const TaskTimer = () => {
   const [records, setRecords] = useState([]);
   const [newTaskName, setNewTaskName] = useState('');
   const [showNewTaskForm, setShowNewTaskForm] = useState(false);
+  const [startTime, setStartTime] = useState(null);
 
-  // Load tasks from localStorage on mount
+  // Initialize IndexedDB
+  useEffect(() => {
+    const request = indexedDB.open('TaskTimerDB', 1);
+
+    request.onerror = (event) => {
+      console.error("Database error:", event.target.error);
+    };
+
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      
+      // Create records store
+      if (!db.objectStoreNames.contains('records')) {
+        db.createObjectStore('records', { keyPath: 'id', autoIncrement: true });
+      }
+      
+      // Create active task store
+      if (!db.objectStoreNames.contains('activeTask')) {
+        db.createObjectStore('activeTask', { keyPath: 'id' });
+      }
+    };
+
+    request.onsuccess = (event) => {
+      const db = event.target.result;
+      
+      // Load records
+      const transaction = db.transaction(['records', 'activeTask'], 'readonly');
+      const recordsStore = transaction.objectStore('records');
+      const activeTaskStore = transaction.objectStore('activeTask');
+
+      recordsStore.getAll().onsuccess = (event) => {
+        setRecords(event.target.result);
+      };
+
+      activeTaskStore.get(1).onsuccess = (event) => {
+        const savedActiveTask = event.target.result;
+        if (savedActiveTask) {
+          setActiveTask(savedActiveTask.taskName);
+          setStartTime(savedActiveTask.startTime);
+          setIsRunning(true);
+          
+          // Calculate elapsed time
+          const elapsedSeconds = Math.floor((Date.now() - savedActiveTask.startTime) / 1000);
+          setTimer(elapsedSeconds);
+        }
+      };
+    };
+  }, []);
+
+  // Load tasks from localStorage
   useEffect(() => {
     const savedTasks = localStorage.getItem('tasks');
     if (savedTasks) {
@@ -21,42 +71,86 @@ const TaskTimer = () => {
   // Timer effect
   useEffect(() => {
     let interval;
-    if (isRunning) {
+    if (isRunning && startTime) {
       interval = setInterval(() => {
-        setTimer(prev => prev + 1);
+        const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+        setTimer(elapsedSeconds);
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isRunning]);
+  }, [isRunning, startTime]);
 
-  // Format seconds to HH:MM:SS
-  const formatTime = (seconds) => {
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  // Save active task to IndexedDB
+  const saveActiveTask = (taskName, timestamp) => {
+    const request = indexedDB.open('TaskTimerDB', 1);
+    
+    request.onsuccess = (event) => {
+      const db = event.target.result;
+      const transaction = db.transaction(['activeTask'], 'readwrite');
+      const store = transaction.objectStore('activeTask');
+      
+      store.put({
+        id: 1,
+        taskName: taskName,
+        startTime: timestamp
+      });
+    };
+  };
+
+  // Save record to IndexedDB
+  const saveRecord = (record) => {
+    const request = indexedDB.open('TaskTimerDB', 1);
+    
+    request.onsuccess = (event) => {
+      const db = event.target.result;
+      const transaction = db.transaction(['records'], 'readwrite');
+      const store = transaction.objectStore('records');
+      
+      store.add(record);
+    };
+  };
+
+  // Clear active task from IndexedDB
+  const clearActiveTask = () => {
+    const request = indexedDB.open('TaskTimerDB', 1);
+    
+    request.onsuccess = (event) => {
+      const db = event.target.result;
+      const transaction = db.transaction(['activeTask'], 'readwrite');
+      const store = transaction.objectStore('activeTask');
+      
+      store.delete(1);
+    };
   };
 
   const handleTaskStart = (taskName) => {
     if (activeTask) {
-      // Save current task record before starting new one
+      // Save current task record
       const record = {
         task: activeTask,
         duration: timer,
-        endTime: new Date().toISOString()
+        startTime: startTime,
+        endTime: Date.now()
       };
       setRecords(prev => [...prev, record]);
+      saveRecord(record);
+      clearActiveTask();
     }
 
     if (taskName === activeTask) {
       // Stop current task
       setActiveTask(null);
       setIsRunning(false);
+      setStartTime(null);
+      clearActiveTask();
     } else {
       // Start new task
+      const now = Date.now();
       setActiveTask(taskName);
+      setStartTime(now);
       setTimer(0);
       setIsRunning(true);
+      saveActiveTask(taskName, now);
     }
   };
 
@@ -71,23 +165,31 @@ const TaskTimer = () => {
     }
   };
 
+  const formatTime = (seconds) => {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
   const downloadRecords = () => {
-    // Add current task if running
     let allRecords = [...records];
-    if (activeTask) {
+    if (activeTask && startTime) {
       allRecords.push({
         task: activeTask,
         duration: timer,
-        endTime: new Date().toISOString()
+        startTime: startTime,
+        endTime: Date.now()
       });
     }
 
     const csv = [
-      ['Task', 'Duration (seconds)', 'End Time'],
+      ['Task', 'Duration (seconds)', 'Start Time', 'End Time'],
       ...allRecords.map(record => [
         record.task,
         record.duration,
-        record.endTime
+        new Date(record.startTime).toISOString(),
+        new Date(record.endTime).toISOString()
       ])
     ].map(row => row.join(',')).join('\n');
 
@@ -104,7 +206,6 @@ const TaskTimer = () => {
 
   return (
     <div className="max-w-md mx-auto p-4 bg-white rounded-lg shadow">
-      {/* Active Timer Display */}
       <div className="mb-6 text-center">
         <div className="text-4xl font-bold mb-2">
           {formatTime(timer)}
@@ -112,9 +213,13 @@ const TaskTimer = () => {
         <div className="text-gray-600">
           {activeTask ? `Currently tracking: ${activeTask}` : 'No active task'}
         </div>
+        {startTime && (
+          <div className="text-sm text-gray-500">
+            Started: {new Date(startTime).toLocaleString()}
+          </div>
+        )}
       </div>
 
-      {/* Task Buttons */}
       <div className="space-y-2 mb-6">
         {tasks.map((task) => (
           <button
@@ -136,7 +241,6 @@ const TaskTimer = () => {
         ))}
       </div>
 
-      {/* New Task Form */}
       {showNewTaskForm ? (
         <form onSubmit={handleAddNewTask} className="mb-6">
           <div className="flex gap-2">
@@ -165,14 +269,18 @@ const TaskTimer = () => {
         </button>
       )}
 
-      {/* Records Summary */}
       {records.length > 0 && (
         <div className="mb-6">
           <h3 className="font-bold mb-2">Completed Tasks:</h3>
           <div className="space-y-2">
             {records.map((record, index) => (
               <div key={index} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                <span>{record.task}</span>
+                <div>
+                  <div>{record.task}</div>
+                  <div className="text-sm text-gray-500">
+                    {new Date(record.startTime).toLocaleString()}
+                  </div>
+                </div>
                 <span>{formatTime(record.duration)}</span>
               </div>
             ))}
@@ -180,7 +288,6 @@ const TaskTimer = () => {
         </div>
       )}
 
-      {/* Download Button */}
       {(records.length > 0 || activeTask) && (
         <button
           onClick={downloadRecords}
