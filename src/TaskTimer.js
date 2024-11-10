@@ -11,23 +11,21 @@ const TaskTimer = () => {
   const [showNewTaskForm, setShowNewTaskForm] = useState(false);
   const [startTime, setStartTime] = useState(null);
 
-  // Initialize IndexedDB
+  // IndexedDB inicializálása
   useEffect(() => {
     const request = indexedDB.open('TaskTimerDB', 1);
 
     request.onerror = (event) => {
-      console.error("Database error:", event.target.error);
+      console.error("Adatbázis hiba:", event.target.error);
     };
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
       
-      // Create records store
       if (!db.objectStoreNames.contains('records')) {
         db.createObjectStore('records', { keyPath: 'id', autoIncrement: true });
       }
       
-      // Create active task store
       if (!db.objectStoreNames.contains('activeTask')) {
         db.createObjectStore('activeTask', { keyPath: 'id' });
       }
@@ -36,7 +34,6 @@ const TaskTimer = () => {
     request.onsuccess = (event) => {
       const db = event.target.result;
       
-      // Load records
       const transaction = db.transaction(['records', 'activeTask'], 'readonly');
       const recordsStore = transaction.objectStore('records');
       const activeTaskStore = transaction.objectStore('activeTask');
@@ -52,7 +49,6 @@ const TaskTimer = () => {
           setStartTime(savedActiveTask.startTime);
           setIsRunning(true);
           
-          // Calculate elapsed time
           const elapsedSeconds = Math.floor((Date.now() - savedActiveTask.startTime) / 1000);
           setTimer(elapsedSeconds);
         }
@@ -60,7 +56,6 @@ const TaskTimer = () => {
     };
   }, []);
 
-  // Load tasks from localStorage
   useEffect(() => {
     const savedTasks = localStorage.getItem('tasks');
     if (savedTasks) {
@@ -68,7 +63,6 @@ const TaskTimer = () => {
     }
   }, []);
 
-  // Timer effect
   useEffect(() => {
     let interval;
     if (isRunning && startTime) {
@@ -80,7 +74,6 @@ const TaskTimer = () => {
     return () => clearInterval(interval);
   }, [isRunning, startTime]);
 
-  // Save active task to IndexedDB
   const saveActiveTask = (taskName, timestamp) => {
     const request = indexedDB.open('TaskTimerDB', 1);
     
@@ -97,7 +90,6 @@ const TaskTimer = () => {
     };
   };
 
-  // Save record to IndexedDB
   const saveRecord = (record) => {
     const request = indexedDB.open('TaskTimerDB', 1);
     
@@ -110,7 +102,6 @@ const TaskTimer = () => {
     };
   };
 
-  // Clear active task from IndexedDB
   const clearActiveTask = () => {
     const request = indexedDB.open('TaskTimerDB', 1);
     
@@ -125,7 +116,6 @@ const TaskTimer = () => {
 
   const handleTaskStart = (taskName) => {
     if (activeTask) {
-      // Save current task record
       const record = {
         task: activeTask,
         duration: timer,
@@ -138,13 +128,11 @@ const TaskTimer = () => {
     }
 
     if (taskName === activeTask) {
-      // Stop current task
       setActiveTask(null);
       setIsRunning(false);
       setStartTime(null);
       clearActiveTask();
     } else {
-      // Start new task
       const now = Date.now();
       setActiveTask(taskName);
       setStartTime(now);
@@ -184,7 +172,7 @@ const TaskTimer = () => {
     }
 
     const csv = [
-      ['Task', 'Duration (seconds)', 'Start Time', 'End Time'],
+      ['Feladat', 'Időtartam (másodperc)', 'Kezdés ideje', 'Befejezés ideje'],
       ...allRecords.map(record => [
         record.task,
         record.duration,
@@ -198,7 +186,7 @@ const TaskTimer = () => {
     const a = document.createElement('a');
     a.setAttribute('hidden', '');
     a.setAttribute('href', url);
-    a.setAttribute('download', `task-records-${new Date().toISOString()}.csv`);
+    a.setAttribute('download', `feladat-rekordok-${new Date().toISOString()}.csv`);
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -211,11 +199,11 @@ const TaskTimer = () => {
           {formatTime(timer)}
         </div>
         <div className="text-gray-600">
-          {activeTask ? `Currently tracking: ${activeTask}` : 'No active task'}
+          {activeTask ? `Jelenlegi feladat: ${activeTask}` : 'Nincs aktív feladat'}
         </div>
         {startTime && (
           <div className="text-sm text-gray-500">
-            Started: {new Date(startTime).toLocaleString()}
+            Kezdés: {new Date(startTime).toLocaleString()}
           </div>
         )}
       </div>
@@ -248,14 +236,14 @@ const TaskTimer = () => {
               type="text"
               value={newTaskName}
               onChange={(e) => setNewTaskName(e.target.value)}
-              placeholder="Enter task name"
+              placeholder="Feladat neve"
               className="flex-1 p-2 border rounded"
             />
             <button
               type="submit"
               className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
             >
-              Add
+              Hozzáad
             </button>
           </div>
         </form>
@@ -265,13 +253,13 @@ const TaskTimer = () => {
           className="w-full p-3 rounded-lg bg-blue-500 text-white hover:bg-blue-600 flex items-center justify-center gap-2 mb-6"
         >
           <Plus className="w-5 h-5" />
-          <span>Add New Task!</span>
+          <span>Új feladat hozzáadása</span>
         </button>
       )}
 
       {records.length > 0 && (
         <div className="mb-6">
-          <h3 className="font-bold mb-2">Completed Tasks:</h3>
+          <h3 className="font-bold mb-2">Befejezett feladatok:</h3>
           <div className="space-y-2">
             {records.map((record, index) => (
               <div key={index} className="flex justify-between items-center p-2 bg-gray-50 rounded">
@@ -294,7 +282,7 @@ const TaskTimer = () => {
           className="w-full p-3 rounded-lg bg-gray-800 text-white hover:bg-gray-900 flex items-center justify-center gap-2"
         >
           <Download className="w-5 h-5" />
-          <span>Export Records</span>
+          <span>Adatok exportálása</span>
         </button>
       )}
     </div>
