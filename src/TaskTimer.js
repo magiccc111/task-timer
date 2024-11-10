@@ -265,7 +265,7 @@ const TaskTimer = () => {
           className="w-full p-3 rounded-lg bg-blue-500 text-white hover:bg-blue-600 flex items-center justify-center gap-2 mb-6"
         >
           <Plus className="w-5 h-5" />
-          <span>Add New Task!</span>
+          <span>Add Newww Task!</span>
         </button>
       )}
 
