@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Pause, Plus, Download, Trash2, Users } from 'lucide-react';
+import { Play, Pause, Plus, Download, Users } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, onValue, set, push, remove } from 'firebase/database';
+import { getDatabase, ref, onValue, set, push, update } from 'firebase/database';
 
 // Firebase config
 const firebaseConfig = {
@@ -44,12 +44,12 @@ const TaskTimer = () => {
           }));
           setTasks(taskList);
         } else {
-          // If no tasks exist, initialize with predefined tasks
+          // If no tasks exist, initialize with predefined tasks from tasks.json
           const predefinedTasks = [
-            "Laposvas szegély",
-            "Növényültetés (geotex-en lyufúróva)",
-            "Geotextilez"
-            // ... további taskok
+            "Laposvas szegély", "Növényültetés (geotex-en lyufúróva)", "Geotextilez", 
+            "Öntözőárok ásás (kotró)", "Csepi csövezés", "Szórófejezés (csőtől -szórófej rögzítésig)",
+            "Szelepakna beszerelés", "Talajmarózás", "Öntözőárok temetés"
+            // ... további taskok a tasks.json-ból
           ];
           
           predefinedTasks.forEach(task => {
@@ -97,12 +97,22 @@ const TaskTimer = () => {
       interval = setInterval(() => {
         const now = Date.now();
         const timeDiff = lastUpdate ? Math.floor((now - lastUpdate) / 1000) : 0;
-        setTimer(prev => prev + timeDiff);
+        const newTimer = timer + timeDiff;
+        
+        set(ref(database, 'activeTask'), {
+          name: activeTask,
+          isRunning: true,
+          timer: newTimer,
+          lastUpdate: now,
+          workerCount
+        });
+        
+        setTimer(newTimer);
         setLastUpdate(now);
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isRunning, lastUpdate]);
+  }, [isRunning, timer, activeTask, lastUpdate, workerCount]);
 
   const formatTime = (seconds) => {
     const hrs = Math.floor(seconds / 3600);
@@ -138,6 +148,70 @@ const TaskTimer = () => {
     }
   };
 
+  const handleWorkerCountChange = (delta) => {
+    const newCount = Math.max(1, workerCount + delta);
+    setWorkerCount(newCount);
+    if (activeTask) {
+      set(ref(database, 'activeTask/workerCount'), newCount);
+    }
+  };
+
+  const handleCompletedTaskWorkerChange = async (recordId, currentWorkers, delta) => {
+    const newWorkerCount = Math.max(1, currentWorkers + delta);
+    try {
+      const recordRef = ref(database, `records/${recordId}`);
+      await update(recordRef, { workerCount: newWorkerCount });
+    } catch (error) {
+      setError(`Worker count update error: ${error.message}`);
+    }
+  };
+
+  const handleAddNewTask = async (e) => {
+    e.preventDefault();
+    if (newTaskName.trim()) {
+      try {
+        const tasksRef = ref(database, 'tasks');
+        await push(tasksRef, { name: newTaskName.trim() });
+        setNewTaskName('');
+        setShowNewTaskForm(false);
+      } catch (error) {
+        setError(`Add task error: ${error.message}`);
+      }
+    }
+  };
+
+  const downloadRecords = () => {
+    let allRecords = [...records];
+    if (activeTask) {
+      allRecords.push({
+        task: activeTask,
+        duration: timer,
+        endTime: new Date().toISOString(),
+        workerCount: workerCount
+      });
+    }
+
+    const csv = [
+      ['Task', 'Duration (seconds)', 'End Time', 'Workers'],
+      ...allRecords.map(record => [
+        record.task,
+        record.duration,
+        record.endTime,
+        record.workerCount || 1
+      ])
+    ].map(row => row.join(',')).join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.setAttribute('hidden', '');
+    a.setAttribute('href', url);
+    a.setAttribute('download', `task-records-${new Date().toISOString()}.csv`);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   if (error) {
     return (
       <div className="max-w-md mx-auto p-4 bg-red-100 text-red-700 rounded-lg">
@@ -157,10 +231,10 @@ const TaskTimer = () => {
           {activeTask ? `Currently tracking: ${activeTask}` : 'No active task'}
         </div>
         
-        {/* Worker Count Controls */}
+        {/* Active Task Worker Count Controls */}
         <div className="mt-4 flex items-center justify-center gap-4">
           <button
-            onClick={() => setWorkerCount(prev => Math.max(1, prev - 1))}
+            onClick={() => handleWorkerCountChange(-1)}
             className="p-2 rounded bg-gray-200 hover:bg-gray-300"
             disabled={workerCount <= 1}
           >
@@ -171,7 +245,7 @@ const TaskTimer = () => {
             <span>{workerCount} worker{workerCount !== 1 ? 's' : ''}</span>
           </div>
           <button
-            onClick={() => setWorkerCount(prev => prev + 1)}
+            onClick={() => handleWorkerCountChange(1)}
             className="p-2 rounded bg-gray-200 hover:bg-gray-300"
           >
             +
@@ -202,25 +276,82 @@ const TaskTimer = () => {
         ))}
       </div>
 
-      {/* Records Summary */}
+      {/* New Task Form */}
+      {showNewTaskForm ? (
+        <form onSubmit={handleAddNewTask} className="mb-6">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newTaskName}
+              onChange={(e) => setNewTaskName(e.target.value)}
+              placeholder="Enter task name"
+              className="flex-1 p-2 border rounded"
+            />
+            <button
+              type="submit"
+              className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+            >
+              Add
+            </button>
+          </div>
+        </form>
+      ) : (
+        <button
+          onClick={() => setShowNewTaskForm(true)}
+          className="w-full p-3 rounded-lg bg-blue-500 text-white hover:bg-blue-600 flex items-center justify-center gap-2 mb-6"
+        >
+          <Plus className="w-5 h-5" />
+          <span>Add New Task</span>
+        </button>
+      )}
+
+      {/* Completed Tasks with Editable Worker Count */}
       {records.length > 0 && (
         <div className="mb-6">
           <h3 className="font-bold mb-2">Completed Tasks:</h3>
           <div className="space-y-2">
             {records.map((record) => (
               <div key={record.id} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                <div>
+                <div className="flex-1">
                   <div>{record.task}</div>
-                  <div className="text-sm text-gray-500 flex items-center gap-1">
-                    <Users className="w-4 h-4" />
-                    {record.workerCount || 1} worker{(record.workerCount || 1) !== 1 ? 's' : ''}
+                  <div className="text-sm text-gray-500">
+                    {formatTime(record.duration)}
                   </div>
                 </div>
-                <span>{formatTime(record.duration)}</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleCompletedTaskWorkerChange(record.id, record.workerCount || 1, -1)}
+                    className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
+                    disabled={(record.workerCount || 1) <= 1}
+                  >
+                    -
+                  </button>
+                  <div className="flex items-center gap-1">
+                    <Users className="w-4 h-4" />
+                    <span>{record.workerCount || 1}</span>
+                  </div>
+                  <button
+                    onClick={() => handleCompletedTaskWorkerChange(record.id, record.workerCount || 1, 1)}
+                    className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         </div>
+      )}
+
+      {/* Download Button */}
+      {(records.length > 0 || activeTask) && (
+        <button
+          onClick={downloadRecords}
+          className="w-full p-3 rounded-lg bg-gray-800 text-white hover:bg-gray-900 flex items-center justify-center gap-2"
+        >
+          <Download className="w-5 h-5" />
+          <span>Export Records</span>
+        </button>
       )}
     </div>
   );
