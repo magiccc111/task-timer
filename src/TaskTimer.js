@@ -15,6 +15,38 @@ const firebaseConfig = {
   measurementId: "G-PQB5EGHG3X"
 };
 
+// Predefined tasks
+const predefinedTasks = [
+  "Laposvas szegély", 
+  "Növényültetés (geotex-en lyufúróva)", 
+  "Geotextilez",
+  "Öntözőárok ásás (kotró)", 
+  "Csepi csövezés", 
+  "Szórófejezés (csőtől -szórófej rögzítésig)",
+  "Szelepakna beszerelés", 
+  "Talajmarózás", 
+  "Öntözőárok temetés", 
+  "Komputer, vezérlés, kábel",
+  "Faültetés (karózva)", 
+  "Növényültetés(geotex-kotrolyfuró)", 
+  "Növényültetés (geon kézzel)",
+  "kavicsterites depobol (kotro+teher)(m2)", 
+  "Gépi simítás (ráccsal, kotróval)",
+  "Kézi placcolás (első körös)", 
+  "Szántás kotróval", 
+  "Talajmarás (castoro)",
+  "Kézi placc (többed körös)", 
+  "Vetés (szellőztet, vet, hengerel)",
+  "Gyepszellőztetés-gereblyézés- vetés-hengerezs", 
+  "Gyepszellő-gereb-homok-vetés-trágya-henger",
+  "öntöző Árkolás (láncos árokásó)", 
+  "árkolás (kézzel)", 
+  "Gyomirtózás",
+  "Vakondhálózás kotróval", 
+  "fűnyírás (gyűjtéssel, szegélyezve)", 
+  "műtrágyázás"
+];
+
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
@@ -37,24 +69,18 @@ const TaskTimer = () => {
       const tasksRef = ref(database, 'tasks');
       onValue(tasksRef, (snapshot) => {
         const data = snapshot.val();
-        if (data) {
+        if (!data) {
+          // Initialize with predefined tasks if empty
+          predefinedTasks.forEach(taskName => {
+            push(tasksRef, { name: taskName });
+          });
+        } else {
+          // Load existing tasks
           const taskList = Object.entries(data).map(([id, val]) => ({
             id,
             name: typeof val === 'string' ? val : val.name
           }));
           setTasks(taskList);
-        } else {
-          // If no tasks exist, initialize with predefined tasks from tasks.json
-          const predefinedTasks = [
-            "Laposvas szegély", "Növényültetés (geotex-en lyufúróva)", "Geotextilez", 
-            "Öntözőárok ásás (kotró)", "Csepi csövezés", "Szórófejezés (csőtől -szórófej rögzítésig)",
-            "Szelepakna beszerelés", "Talajmarózás", "Öntözőárok temetés"
-            // ... további taskok a tasks.json-ból
-          ];
-          
-          predefinedTasks.forEach(task => {
-            push(tasksRef, { name: task });
-          });
         }
       }, (error) => {
         setError(`Tasks error: ${error.message}`);
@@ -70,6 +96,11 @@ const TaskTimer = () => {
           setTimer(data.timer);
           setLastUpdate(data.lastUpdate);
           setWorkerCount(data.workerCount || 1);
+        } else {
+          setActiveTask(null);
+          setIsRunning(false);
+          setTimer(0);
+          setWorkerCount(1);
         }
       }, (error) => {
         setError(`Active task error: ${error.message}`);
@@ -80,7 +111,13 @@ const TaskTimer = () => {
       onValue(recordsRef, (snapshot) => {
         const data = snapshot.val();
         if (data) {
-          setRecords(Object.entries(data).map(([id, record]) => ({ id, ...record })));
+          const recordsList = Object.entries(data).map(([id, record]) => ({
+            id,
+            ...record
+          }));
+          setRecords(recordsList);
+        } else {
+          setRecords([]);
         }
       }, (error) => {
         setError(`Records error: ${error.message}`);
@@ -99,6 +136,9 @@ const TaskTimer = () => {
         const timeDiff = lastUpdate ? Math.floor((now - lastUpdate) / 1000) : 0;
         const newTimer = timer + timeDiff;
         
+        setTimer(newTimer);
+        setLastUpdate(now);
+        
         set(ref(database, 'activeTask'), {
           name: activeTask,
           isRunning: true,
@@ -106,12 +146,13 @@ const TaskTimer = () => {
           lastUpdate: now,
           workerCount
         });
-        
-        setTimer(newTimer);
-        setLastUpdate(now);
       }, 1000);
     }
-    return () => clearInterval(interval);
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
   }, [isRunning, timer, activeTask, lastUpdate, workerCount]);
 
   const formatTime = (seconds) => {
@@ -123,18 +164,50 @@ const TaskTimer = () => {
 
   const handleTaskStart = async (taskName) => {
     try {
-      if (activeTask) {
-        const recordsRef = ref(database, 'records');
-        await push(recordsRef, {
-          task: activeTask,
-          duration: timer,
-          endTime: new Date().toISOString(),
+      if (activeTask === taskName) {
+        // Same task - toggle running state
+        const newIsRunning = !isRunning;
+        setIsRunning(newIsRunning);
+        await set(ref(database, 'activeTask'), {
+          name: activeTask,
+          isRunning: newIsRunning,
+          timer,
+          lastUpdate: Date.now(),
           workerCount
         });
-        await set(ref(database, 'activeTask'), null);
-      }
 
-      if (taskName !== activeTask) {
+        if (!newIsRunning) {
+          // If stopping the task, save it as a record
+          const recordsRef = ref(database, 'records');
+          await push(recordsRef, {
+            task: activeTask,
+            duration: timer,
+            endTime: new Date().toISOString(),
+            workerCount
+          });
+          // Reset active task
+          await set(ref(database, 'activeTask'), null);
+          setActiveTask(null);
+          setTimer(0);
+          setWorkerCount(1);
+        }
+      } else {
+        // Different task - save current if exists and start new
+        if (activeTask) {
+          const recordsRef = ref(database, 'records');
+          await push(recordsRef, {
+            task: activeTask,
+            duration: timer,
+            endTime: new Date().toISOString(),
+            workerCount
+          });
+        }
+
+        // Start new task
+        setActiveTask(taskName);
+        setIsRunning(true);
+        setTimer(0);
+        setLastUpdate(Date.now());
         await set(ref(database, 'activeTask'), {
           name: taskName,
           isRunning: true,
@@ -261,13 +334,19 @@ const TaskTimer = () => {
               onClick={() => handleTaskStart(task.name)}
               className={`flex-1 p-3 rounded-lg flex items-center justify-between ${
                 task.name === activeTask
-                  ? 'bg-green-500 text-white'
+                  ? isRunning 
+                    ? 'bg-green-500 text-white'
+                    : 'bg-yellow-500 text-white'
                   : 'bg-gray-100 hover:bg-gray-200'
               }`}
             >
               <span>{task.name}</span>
               {task.name === activeTask ? (
-                <Pause className="w-5 h-5" />
+                isRunning ? (
+                  <Pause className="w-5 h-5" />
+                ) : (
+                  <Play className="w-5 h-5" />
+                )
               ) : (
                 <Play className="w-5 h-5" />
               )}
@@ -304,44 +383,43 @@ const TaskTimer = () => {
           <span>Add New Task</span>
         </button>
       )}
-
       {/* Completed Tasks with Editable Worker Count */}
-      {records.length > 0 && (
-        <div className="mb-6">
-          <h3 className="font-bold mb-2">Completed Tasks:</h3>
-          <div className="space-y-2">
-            {records.map((record) => (
-              <div key={record.id} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                <div className="flex-1">
-                  <div>{record.task}</div>
-                  <div className="text-sm text-gray-500">
-                    {formatTime(record.duration)}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleCompletedTaskWorkerChange(record.id, record.workerCount || 1, -1)}
-                    className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
-                    disabled={(record.workerCount || 1) <= 1}
-                  >
-                    -
-                  </button>
-                  <div className="flex items-center gap-1">
-                    <Users className="w-4 h-4" />
-                    <span>{record.workerCount || 1}</span>
-                  </div>
-                  <button
-                    onClick={() => handleCompletedTaskWorkerChange(record.id, record.workerCount || 1, 1)}
-                    className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-            ))}
+{records.length > 0 && (
+  <div className="mb-6">
+    <h3 className="font-bold mb-2">Completed Tasks:</h3>
+    <div className="space-y-2">
+      {records.map((record) => (
+        <div key={record.id} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+          <div className="flex-1">
+            <div>{record.task}</div>
+            <div className="text-sm text-gray-500">
+              {formatTime(record.duration)}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleCompletedTaskWorkerChange(record.id, record.workerCount || 1, -1)}
+              className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
+              disabled={(record.workerCount || 1) <= 1}
+            >
+              -
+            </button>
+            <div className="flex items-center gap-1">
+              <Users className="w-4 h-4" />
+              <span>{record.workerCount || 1}</span>
+            </div>
+            <button
+              onClick={() => handleCompletedTaskWorkerChange(record.id, record.workerCount || 1, 1)}
+              className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
+            >
+              +
+            </button>
           </div>
         </div>
-      )}
+      ))}
+    </div>
+  </div>
+)}
 
       {/* Download Button */}
       {(records.length > 0 || activeTask) && (
