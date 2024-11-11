@@ -64,27 +64,37 @@ const TaskTimer = () => {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    try {
-      // Tasks listener
-      const tasksRef = ref(database, 'tasks');
-      onValue(tasksRef, (snapshot) => {
-        const data = snapshot.val();
-        if (!data) {
-          // Initialize with predefined tasks if empty
-          predefinedTasks.forEach(taskName => {
-            push(tasksRef, { name: taskName });
-          });
-        } else {
-          // Load existing tasks
-          const taskList = Object.entries(data).map(([id, val]) => ({
-            id,
-            name: typeof val === 'string' ? val : val.name
-          }));
-          setTasks(taskList);
+  try {
+    // Tasks listener
+    const tasksRef = ref(database, 'tasks');
+    onValue(tasksRef, async (snapshot) => {
+      const data = snapshot.val();
+      if (!data || Object.keys(data).length === 0) {
+        // Ha nincs adat vagy üres az objektum, inicializáljuk a predefined taskokkal
+        console.log("Initializing predefined tasks...");
+        const promises = predefinedTasks.map(taskName => 
+          push(tasksRef, { name: taskName })
+        );
+        try {
+          await Promise.all(promises);
+          console.log("Predefined tasks initialized successfully");
+        } catch (error) {
+          console.error("Error initializing predefined tasks:", error);
+          setError(`Failed to initialize predefined tasks: ${error.message}`);
         }
-      }, (error) => {
-        setError(`Tasks error: ${error.message}`);
-      });
+      } else {
+        // Meglévő taskok betöltése
+        const taskList = Object.entries(data).map(([id, val]) => ({
+          id,
+          name: typeof val === 'string' ? val : val.name
+        }));
+        console.log("Loaded existing tasks:", taskList);
+        setTasks(taskList);
+      }
+    }, (error) => {
+      console.error("Tasks listener error:", error);
+      setError(`Tasks error: ${error.message}`);
+    });
 
       // Active task listener
       const activeTaskRef = ref(database, 'activeTask');
