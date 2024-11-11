@@ -3,23 +3,31 @@ import { Play, Pause, Plus, Download, Clock } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, onValue, set, push } from 'firebase/database';
 
-// Firebase config - replace with your own
+// Firebase konfiguráció - ezeket a Firebase console-ból kell beállítani
 const firebaseConfig = {
-  // Add your Firebase config here
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_AUTH_DOMAIN",
-  databaseURL: "YOUR_DATABASE_URL",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_STORAGE_BUCKET",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+
+  apiKey: "AIzaSyB0duQhUDrYZrnLRWR0O4sBI9i1p3NXaMk",
+
+  authDomain: "tasktimerforadam.firebaseapp.com",
+
+  projectId: "tasktimerforadam",
+
+  storageBucket: "tasktimerforadam.firebasestorage.app",
+
+  messagingSenderId: "390956096870",
+
+  appId: "1:390956096870:web:c872dc0e2223d5700d7ca7",
+
+  measurementId: "G-PQB5EGHG3X"
+
 };
+
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
 
-const SyncedTaskTimer = () => {
+const TaskTimer = () => {
   const [tasks, setTasks] = useState([]);
   const [activeTask, setActiveTask] = useState(null);
   const [timer, setTimer] = useState(0);
@@ -29,65 +37,65 @@ const SyncedTaskTimer = () => {
   const [showNewTaskForm, setShowNewTaskForm] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
 
-  // Subscribe to real-time updates
+  // Firebase listeners setup
   useEffect(() => {
     const tasksRef = ref(database, 'tasks');
     const activeTaskRef = ref(database, 'activeTask');
-    const timerRef = ref(database, 'timer');
     const recordsRef = ref(database, 'records');
-    const isRunningRef = ref(database, 'isRunning');
+    const timerRef = ref(database, 'timer');
+    const lastUpdateRef = ref(database, 'lastUpdate');
 
     // Listen for tasks changes
-    const unsubTasks = onValue(tasksRef, (snapshot) => {
+    onValue(tasksRef, (snapshot) => {
       const data = snapshot.val();
-      if (data) setTasks(data);
+      if (data) setTasks(Object.values(data));
     });
 
     // Listen for active task changes
-    const unsubActiveTask = onValue(activeTaskRef, (snapshot) => {
+    onValue(activeTaskRef, (snapshot) => {
       const data = snapshot.val();
-      if (data !== undefined) setActiveTask(data);
-    });
-
-    // Listen for timer changes
-    const unsubTimer = onValue(timerRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data !== undefined) setTimer(data);
+      if (data) {
+        setActiveTask(data.name);
+        setIsRunning(data.isRunning);
+        setTimer(data.timer);
+        setLastUpdate(data.lastUpdate);
+      } else {
+        setActiveTask(null);
+        setIsRunning(false);
+        setTimer(0);
+      }
     });
 
     // Listen for records changes
-    const unsubRecords = onValue(recordsRef, (snapshot) => {
+    onValue(recordsRef, (snapshot) => {
       const data = snapshot.val();
       if (data) setRecords(Object.values(data));
     });
-
-    // Listen for isRunning changes
-    const unsubIsRunning = onValue(isRunningRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data !== undefined) setIsRunning(data);
-    });
-
-    return () => {
-      unsubTasks();
-      unsubActiveTask();
-      unsubTimer();
-      unsubRecords();
-      unsubIsRunning();
-    };
   }, []);
 
-  // Timer effect
+  // Timer effect with Firebase sync
   useEffect(() => {
     let interval;
     if (isRunning) {
       interval = setInterval(() => {
-        const newTimer = timer + 1;
+        const now = Date.now();
+        const timeDiff = lastUpdate ? Math.floor((now - lastUpdate) / 1000) : 0;
+        const newTimer = timer + timeDiff;
+        
+        // Update Firebase
+        set(ref(database, 'activeTask'), {
+          name: activeTask,
+          isRunning: true,
+          timer: newTimer,
+          lastUpdate: now
+        });
+        
         setTimer(newTimer);
-        set(ref(database, 'timer'), newTimer);
+        setLastUpdate(now);
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isRunning, timer]);
+  }, [isRunning, timer, activeTask, lastUpdate]);
 
   const formatTime = (seconds) => {
     const hrs = Math.floor(seconds / 3600);
@@ -96,7 +104,7 @@ const SyncedTaskTimer = () => {
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleTaskStart = (taskName) => {
+  const handleTaskStart = async (taskName) => {
     if (activeTask) {
       // Save current task record
       const record = {
@@ -104,27 +112,34 @@ const SyncedTaskTimer = () => {
         duration: timer,
         endTime: new Date().toISOString()
       };
-      const newRecordRef = push(ref(database, 'records'));
-      set(newRecordRef, record);
+      
+      // Add record to Firebase
+      const recordsRef = ref(database, 'records');
+      push(recordsRef, record);
+
+      // Clear active task
+      await set(ref(database, 'activeTask'), null);
     }
 
-    if (taskName === activeTask) {
-      // Stop current task
-      set(ref(database, 'activeTask'), null);
-      set(ref(database, 'isRunning'), false);
-    } else {
+    if (taskName !== activeTask) {
       // Start new task
-      set(ref(database, 'activeTask'), taskName);
-      set(ref(database, 'timer'), 0);
-      set(ref(database, 'isRunning'), true);
+      const now = Date.now();
+      await set(ref(database, 'activeTask'), {
+        name: taskName,
+        isRunning: true,
+        timer: 0,
+        lastUpdate: now
+      });
     }
   };
 
-  const handleAddNewTask = (e) => {
+  const handleAddNewTask = async (e) => {
     e.preventDefault();
     if (newTaskName.trim()) {
-      const updatedTasks = [...tasks, newTaskName];
-      set(ref(database, 'tasks'), updatedTasks);
+      // Add task to Firebase
+      const tasksRef = ref(database, 'tasks');
+      push(tasksRef, newTaskName);
+      
       setNewTaskName('');
       setShowNewTaskForm(false);
     }
@@ -252,4 +267,4 @@ const SyncedTaskTimer = () => {
   );
 };
 
-export default SyncedTaskTimer;
+export default TaskTimer;
