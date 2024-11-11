@@ -60,41 +60,38 @@ const TaskTimer = () => {
   const [newTaskName, setNewTaskName] = useState('');
   const [showNewTaskForm, setShowNewTaskForm] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
-  const [workerCount, setWorkerCount] = useState(1);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-  try {
-    // Tasks listener
-    const tasksRef = ref(database, 'tasks');
-    onValue(tasksRef, async (snapshot) => {
-      const data = snapshot.val();
-      if (!data || Object.keys(data).length === 0) {
-        // Ha nincs adat vagy üres az objektum, inicializáljuk a predefined taskokkal
-        console.log("Initializing predefined tasks...");
-        const promises = predefinedTasks.map(taskName => 
-          push(tasksRef, { name: taskName })
-        );
-        try {
-          await Promise.all(promises);
-          console.log("Predefined tasks initialized successfully");
-        } catch (error) {
-          console.error("Error initializing predefined tasks:", error);
-          setError(`Failed to initialize predefined tasks: ${error.message}`);
+    try {
+      // Tasks listener
+      const tasksRef = ref(database, 'tasks');
+      onValue(tasksRef, async (snapshot) => {
+        const data = snapshot.val();
+        if (!data || Object.keys(data).length === 0) {
+          console.log("Initializing predefined tasks...");
+          const promises = predefinedTasks.map(taskName => 
+            push(tasksRef, { name: taskName })
+          );
+          try {
+            await Promise.all(promises);
+            console.log("Predefined tasks initialized successfully");
+          } catch (error) {
+            console.error("Error initializing predefined tasks:", error);
+            setError(`Failed to initialize predefined tasks: ${error.message}`);
+          }
+        } else {
+          const taskList = Object.entries(data).map(([id, val]) => ({
+            id,
+            name: typeof val === 'string' ? val : val.name
+          }));
+          console.log("Loaded existing tasks:", taskList);
+          setTasks(taskList);
         }
-      } else {
-        // Meglévő taskok betöltése
-        const taskList = Object.entries(data).map(([id, val]) => ({
-          id,
-          name: typeof val === 'string' ? val : val.name
-        }));
-        console.log("Loaded existing tasks:", taskList);
-        setTasks(taskList);
-      }
-    }, (error) => {
-      console.error("Tasks listener error:", error);
-      setError(`Tasks error: ${error.message}`);
-    });
+      }, (error) => {
+        console.error("Tasks listener error:", error);
+        setError(`Tasks error: ${error.message}`);
+      });
 
       // Active task listener
       const activeTaskRef = ref(database, 'activeTask');
@@ -105,12 +102,10 @@ const TaskTimer = () => {
           setIsRunning(data.isRunning);
           setTimer(data.timer);
           setLastUpdate(data.lastUpdate);
-          setWorkerCount(data.workerCount || 1);
         } else {
           setActiveTask(null);
           setIsRunning(false);
           setTimer(0);
-          setWorkerCount(1);
         }
       }, (error) => {
         setError(`Active task error: ${error.message}`);
@@ -123,7 +118,8 @@ const TaskTimer = () => {
         if (data) {
           const recordsList = Object.entries(data).map(([id, record]) => ({
             id,
-            ...record
+            ...record,
+            workerCount: record.workerCount || 1
           }));
           setRecords(recordsList);
         } else {
@@ -154,7 +150,7 @@ const TaskTimer = () => {
           isRunning: true,
           timer: newTimer,
           lastUpdate: now,
-          workerCount
+          workerCount: 1
         });
       }, 1000);
     }
@@ -163,7 +159,7 @@ const TaskTimer = () => {
         clearInterval(interval);
       }
     };
-  }, [isRunning, timer, activeTask, lastUpdate, workerCount]);
+  }, [isRunning, timer, activeTask, lastUpdate]);
 
   const formatTime = (seconds) => {
     const hrs = Math.floor(seconds / 3600);
@@ -183,7 +179,7 @@ const TaskTimer = () => {
           isRunning: newIsRunning,
           timer,
           lastUpdate: Date.now(),
-          workerCount
+          workerCount: 1
         });
 
         if (!newIsRunning) {
@@ -193,13 +189,12 @@ const TaskTimer = () => {
             task: activeTask,
             duration: timer,
             endTime: new Date().toISOString(),
-            workerCount
+            workerCount: 1
           });
           // Reset active task
           await set(ref(database, 'activeTask'), null);
           setActiveTask(null);
           setTimer(0);
-          setWorkerCount(1);
         }
       } else {
         // Different task - save current if exists and start new
@@ -209,7 +204,7 @@ const TaskTimer = () => {
             task: activeTask,
             duration: timer,
             endTime: new Date().toISOString(),
-            workerCount
+            workerCount: 1
           });
         }
 
@@ -223,19 +218,11 @@ const TaskTimer = () => {
           isRunning: true,
           timer: 0,
           lastUpdate: Date.now(),
-          workerCount
+          workerCount: 1
         });
       }
     } catch (error) {
       setError(`Task start error: ${error.message}`);
-    }
-  };
-
-  const handleWorkerCountChange = (delta) => {
-    const newCount = Math.max(1, workerCount + delta);
-    setWorkerCount(newCount);
-    if (activeTask) {
-      set(ref(database, 'activeTask/workerCount'), newCount);
     }
   };
 
@@ -270,7 +257,7 @@ const TaskTimer = () => {
         task: activeTask,
         duration: timer,
         endTime: new Date().toISOString(),
-        workerCount: workerCount
+        workerCount: 1
       });
     }
 
@@ -280,7 +267,7 @@ const TaskTimer = () => {
         record.task,
         record.duration,
         record.endTime,
-        record.workerCount || 1
+        record.workerCount
       ])
     ].map(row => row.join(',')).join('\n');
 
@@ -312,27 +299,6 @@ const TaskTimer = () => {
         </div>
         <div className="text-gray-600">
           {activeTask ? `Currently tracking: ${activeTask}` : 'No active task'}
-        </div>
-        
-        {/* Active Task Worker Count Controls */}
-        <div className="mt-4 flex items-center justify-center gap-4">
-          <button
-            onClick={() => handleWorkerCountChange(-1)}
-            className="p-2 rounded bg-gray-200 hover:bg-gray-300"
-            disabled={workerCount <= 1}
-          >
-            -
-          </button>
-          <div className="flex items-center gap-2">
-            <Users className="w-5 h-5" />
-            <span>{workerCount} worker{workerCount !== 1 ? 's' : ''}</span>
-          </div>
-          <button
-            onClick={() => handleWorkerCountChange(1)}
-            className="p-2 rounded bg-gray-200 hover:bg-gray-300"
-          >
-            +
-          </button>
         </div>
       </div>
 
@@ -393,43 +359,44 @@ const TaskTimer = () => {
           <span>Add New Task</span>
         </button>
       )}
-      {/* Completed Tasks with Editable Worker Count */}
-{records.length > 0 && (
-  <div className="mb-6">
-    <h3 className="font-bold mb-2">Completed Tasks:</h3>
-    <div className="space-y-2">
-      {records.map((record) => (
-        <div key={record.id} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-          <div className="flex-1">
-            <div>{record.task}</div>
-            <div className="text-sm text-gray-500">
-              {formatTime(record.duration)}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => handleCompletedTaskWorkerChange(record.id, record.workerCount || 1, -1)}
-              className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
-              disabled={(record.workerCount || 1) <= 1}
-            >
-              -
-            </button>
-            <div className="flex items-center gap-1">
-              <Users className="w-4 h-4" />
-              <span>{record.workerCount || 1}</span>
-            </div>
-            <button
-              onClick={() => handleCompletedTaskWorkerChange(record.id, record.workerCount || 1, 1)}
-              className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
-            >
-              +
-            </button>
+
+      {/* Completed Tasks with Worker Count Controls */}
+      {records.length > 0 && (
+        <div className="mb-6">
+          <h3 className="font-bold mb-2">Completed Tasks:</h3>
+          <div className="space-y-2">
+            {records.map((record) => (
+              <div key={record.id} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                <div className="flex-1">
+                  <div>{record.task}</div>
+                  <div className="text-sm text-gray-500">
+                    {formatTime(record.duration)}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleCompletedTaskWorkerChange(record.id, record.workerCount, -1)}
+                    className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
+                    disabled={record.workerCount <= 1}
+                  >
+                    -
+                  </button>
+                  <div className="flex items-center gap-1">
+                  <Users className="w-4 h-4" />
+                    <span>{record.workerCount}</span>
+                  </div>
+                  <button
+                    onClick={() => handleCompletedTaskWorkerChange(record.id, record.workerCount, 1)}
+                    className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
-      ))}
-    </div>
-  </div>
-)}
+      )}
 
       {/* Download Button */}
       {(records.length > 0 || activeTask) && (
