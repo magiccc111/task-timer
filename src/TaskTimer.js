@@ -28,6 +28,20 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
 
+// Predefined tasks from tasks.json
+const predefinedTasks = [
+  "Laposvas szegély", "Növényültetés (geotex-en lyufúróva)", "Geotextilez", 
+  "Öntözőárok ásás (kotró)", "Csepi csövezés", "Szórófejezés (csőtől -szórófej rögzítésig)",
+  "Szelepakna beszerelés", "Talajmarózás", "Öntözőárok temetés", "Komputer, vezérlés, kábel",
+  "Faültetés (karózva)", "Növényültetés(geotex-kotrolyfuró)", "Növényültetés (geon kézzel)",
+  "kavicsterites depobol (kotro+teher)(m2)", "Gépi simítás (ráccsal, kotróval)",
+  "Kézi placcolás (első körös)", "Szántás kotróval", "Talajmarás (castoro)",
+  "Kézi placc (többed körös)", "Vetés (szellőztet, vet, hengerel)",
+  "Gyepszellőztetés-gereblyézés- vetés-hengerezs", "Gyepszellő-gereb-homok-vetés-trágya-henger",
+  "öntöző Árkolás (láncos árokásó)", "árkolás (kézzel)", "Gyomirtózás",
+  "Vakondhálózás kotróval", "fűnyírás (gyűjtéssel, szegélyezve)", "műtrágyázás"
+];
+
 const TaskTimer = () => {
   const [tasks, setTasks] = useState([]);
   const [activeTask, setActiveTask] = useState(null);
@@ -37,19 +51,28 @@ const TaskTimer = () => {
   const [newTaskName, setNewTaskName] = useState('');
   const [showNewTaskForm, setShowNewTaskForm] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
+  const [workerCount, setWorkerCount] = useState(1);
 
-  // Firebase listeners setup
+  // Initialize Firebase listeners and load predefined tasks
   useEffect(() => {
     const tasksRef = ref(database, 'tasks');
     const activeTaskRef = ref(database, 'activeTask');
     const recordsRef = ref(database, 'records');
-    const timerRef = ref(database, 'timer');
-    const lastUpdateRef = ref(database, 'lastUpdate');
 
-    // Listen for tasks changes
+    // Initialize predefined tasks if no tasks exist
     onValue(tasksRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) setTasks(Object.values(data));
+      if (!snapshot.exists()) {
+        predefinedTasks.forEach(task => {
+          push(tasksRef, { name: task });
+        });
+      } else {
+        const taskData = snapshot.val();
+        const formattedTasks = Object.entries(taskData).map(([id, value]) => ({
+          id,
+          name: typeof value === 'string' ? value : value.name
+        }));
+        setTasks(formattedTasks);
+      }
     });
 
     // Listen for active task changes
@@ -60,21 +83,31 @@ const TaskTimer = () => {
         setIsRunning(data.isRunning);
         setTimer(data.timer);
         setLastUpdate(data.lastUpdate);
+        setWorkerCount(data.workerCount || 1);
       } else {
         setActiveTask(null);
         setIsRunning(false);
         setTimer(0);
+        setWorkerCount(1);
       }
     });
 
     // Listen for records changes
     onValue(recordsRef, (snapshot) => {
       const data = snapshot.val();
-      if (data) setRecords(Object.values(data));
+      if (data) {
+        const recordsList = Object.entries(data).map(([id, record]) => ({
+          id,
+          ...record
+        }));
+        setRecords(recordsList);
+      } else {
+        setRecords([]);
+      }
     });
   }, []);
 
-  // Timer effect with Firebase sync
+  // Timer effect
   useEffect(() => {
     let interval;
     if (isRunning) {
@@ -83,12 +116,12 @@ const TaskTimer = () => {
         const timeDiff = lastUpdate ? Math.floor((now - lastUpdate) / 1000) : 0;
         const newTimer = timer + timeDiff;
         
-        // Update Firebase
         set(ref(database, 'activeTask'), {
           name: activeTask,
           isRunning: true,
           timer: newTimer,
-          lastUpdate: now
+          lastUpdate: now,
+          workerCount
         });
         
         setTimer(newTimer);
@@ -96,7 +129,7 @@ const TaskTimer = () => {
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isRunning, timer, activeTask, lastUpdate]);
+  }, [isRunning, timer, activeTask, lastUpdate, workerCount]);
 
   const formatTime = (seconds) => {
     const hrs = Math.floor(seconds / 3600);
@@ -107,29 +140,26 @@ const TaskTimer = () => {
 
   const handleTaskStart = async (taskName) => {
     if (activeTask) {
-      // Save current task record
       const record = {
         task: activeTask,
         duration: timer,
-        endTime: new Date().toISOString()
+        endTime: new Date().toISOString(),
+        workerCount: workerCount
       };
       
-      // Add record to Firebase
       const recordsRef = ref(database, 'records');
-      push(recordsRef, record);
-
-      // Clear active task
+      await push(recordsRef, record);
       await set(ref(database, 'activeTask'), null);
     }
 
     if (taskName !== activeTask) {
-      // Start new task
       const now = Date.now();
       await set(ref(database, 'activeTask'), {
         name: taskName,
         isRunning: true,
         timer: 0,
-        lastUpdate: now
+        lastUpdate: now,
+        workerCount: workerCount
       });
     }
   };
@@ -137,12 +167,25 @@ const TaskTimer = () => {
   const handleAddNewTask = async (e) => {
     e.preventDefault();
     if (newTaskName.trim()) {
-      // Add task to Firebase
       const tasksRef = ref(database, 'tasks');
-      push(tasksRef, newTaskName);
-      
+      await push(tasksRef, { name: newTaskName.trim() });
       setNewTaskName('');
       setShowNewTaskForm(false);
+    }
+  };
+
+  const handleDeleteTask = async (taskId) => {
+    if (window.confirm('Are you sure you want to delete this task?')) {
+      const taskRef = ref(database, `tasks/${taskId}`);
+      await remove(taskRef);
+    }
+  };
+
+  const handleWorkerCountChange = (delta) => {
+    const newCount = Math.max(1, workerCount + delta);
+    setWorkerCount(newCount);
+    if (activeTask) {
+      set(ref(database, 'activeTask/workerCount'), newCount);
     }
   };
 
@@ -152,16 +195,18 @@ const TaskTimer = () => {
       allRecords.push({
         task: activeTask,
         duration: timer,
-        endTime: new Date().toISOString()
+        endTime: new Date().toISOString(),
+        workerCount: workerCount
       });
     }
 
     const csv = [
-      ['Task', 'Duration (seconds)', 'End Time'],
+      ['Task', 'Duration (seconds)', 'End Time', 'Workers'],
       ...allRecords.map(record => [
         record.task,
         record.duration,
-        record.endTime
+        record.endTime,
+        record.workerCount || 1
       ])
     ].map(row => row.join(',')).join('\n');
 
@@ -178,7 +223,7 @@ const TaskTimer = () => {
 
   return (
     <div className="max-w-md mx-auto p-4 bg-white rounded-lg shadow">
-      {/* Active Timer Display */}
+      {/* Timer Display */}
       <div className="mb-6 text-center">
         <div className="text-4xl font-bold mb-2">
           {formatTime(timer)}
@@ -186,27 +231,55 @@ const TaskTimer = () => {
         <div className="text-gray-600">
           {activeTask ? `Currently tracking: ${activeTask}` : 'No active task'}
         </div>
+        
+        {/* Worker Count Controls */}
+        <div className="mt-4 flex items-center justify-center gap-4">
+          <button
+            onClick={() => handleWorkerCountChange(-1)}
+            className="p-2 rounded bg-gray-200 hover:bg-gray-300"
+            disabled={workerCount <= 1}
+          >
+            -
+          </button>
+          <div className="flex items-center gap-2">
+            <Users className="w-5 h-5" />
+            <span>{workerCount} worker{workerCount !== 1 ? 's' : ''}</span>
+          </div>
+          <button
+            onClick={() => handleWorkerCountChange(1)}
+            className="p-2 rounded bg-gray-200 hover:bg-gray-300"
+          >
+            +
+          </button>
+        </div>
       </div>
 
-      {/* Task Buttons */}
+      {/* Task List */}
       <div className="space-y-2 mb-6">
         {tasks.map((task) => (
-          <button
-            key={task}
-            onClick={() => handleTaskStart(task)}
-            className={`w-full p-3 rounded-lg flex items-center justify-between ${
-              task === activeTask
-                ? 'bg-green-500 text-white'
-                : 'bg-gray-100 hover:bg-gray-200'
-            }`}
-          >
-            <span>{task}</span>
-            {task === activeTask ? (
-              <Pause className="w-5 h-5" />
-            ) : (
-              <Play className="w-5 h-5" />
-            )}
-          </button>
+          <div key={task.id} className="flex gap-2">
+            <button
+              onClick={() => handleTaskStart(task.name)}
+              className={`flex-1 p-3 rounded-lg flex items-center justify-between ${
+                task.name === activeTask
+                  ? 'bg-green-500 text-white'
+                  : 'bg-gray-100 hover:bg-gray-200'
+              }`}
+            >
+              <span>{task.name}</span>
+              {task.name === activeTask ? (
+                <Pause className="w-5 h-5" />
+              ) : (
+                <Play className="w-5 h-5" />
+              )}
+            </button>
+            <button
+              onClick={() => handleDeleteTask(task.id)}
+              className="p-3 rounded-lg bg-red-100 hover:bg-red-200 text-red-600"
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
+          </div>
         ))}
       </div>
 
@@ -244,9 +317,15 @@ const TaskTimer = () => {
         <div className="mb-6">
           <h3 className="font-bold mb-2">Completed Tasks:</h3>
           <div className="space-y-2">
-            {records.map((record, index) => (
-              <div key={index} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                <span>{record.task}</span>
+            {records.map((record) => (
+              <div key={record.id} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                <div>
+                  <div>{record.task}</div>
+                  <div className="text-sm text-gray-500 flex items-center gap-1">
+                    <Users className="w-4 h-4" />
+                    {record.workerCount || 1} worker{(record.workerCount || 1) !== 1 ? 's' : ''}
+                  </div>
+                </div>
                 <span>{formatTime(record.duration)}</span>
               </div>
             ))}
