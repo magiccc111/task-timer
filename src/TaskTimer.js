@@ -1,7 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { Play, Pause, Plus, Download, Clock } from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, onValue, set, push } from 'firebase/database';
 
-const TaskTimer = () => {
+// Firebase config - replace with your own
+const firebaseConfig = {
+  // Add your Firebase config here
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_AUTH_DOMAIN",
+  databaseURL: "YOUR_DATABASE_URL",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_STORAGE_BUCKET",
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const database = getDatabase(app);
+
+const SyncedTaskTimer = () => {
   const [tasks, setTasks] = useState([]);
   const [activeTask, setActiveTask] = useState(null);
   const [timer, setTimer] = useState(0);
@@ -9,149 +27,67 @@ const TaskTimer = () => {
   const [records, setRecords] = useState([]);
   const [newTaskName, setNewTaskName] = useState('');
   const [showNewTaskForm, setShowNewTaskForm] = useState(false);
-  const [startTime, setStartTime] = useState(null);
+  const [lastUpdate, setLastUpdate] = useState(null);
 
-  // IndexedDB inicializálása
+  // Subscribe to real-time updates
   useEffect(() => {
-    const request = indexedDB.open('TaskTimerDB', 1);
+    const tasksRef = ref(database, 'tasks');
+    const activeTaskRef = ref(database, 'activeTask');
+    const timerRef = ref(database, 'timer');
+    const recordsRef = ref(database, 'records');
+    const isRunningRef = ref(database, 'isRunning');
 
-    request.onerror = (event) => {
-      console.error("Adatbázis hiba:", event.target.error);
-    };
+    // Listen for tasks changes
+    const unsubTasks = onValue(tasksRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) setTasks(data);
+    });
 
-    request.onupgradeneeded = (event) => {
-      const db = event.target.result;
-      
-      if (!db.objectStoreNames.contains('records')) {
-        db.createObjectStore('records', { keyPath: 'id', autoIncrement: true });
-      }
-      
-      if (!db.objectStoreNames.contains('activeTask')) {
-        db.createObjectStore('activeTask', { keyPath: 'id' });
-      }
-    };
+    // Listen for active task changes
+    const unsubActiveTask = onValue(activeTaskRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data !== undefined) setActiveTask(data);
+    });
 
-    request.onsuccess = (event) => {
-      const db = event.target.result;
-      
-      const transaction = db.transaction(['records', 'activeTask'], 'readonly');
-      const recordsStore = transaction.objectStore('records');
-      const activeTaskStore = transaction.objectStore('activeTask');
+    // Listen for timer changes
+    const unsubTimer = onValue(timerRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data !== undefined) setTimer(data);
+    });
 
-      recordsStore.getAll().onsuccess = (event) => {
-        setRecords(event.target.result);
-      };
+    // Listen for records changes
+    const unsubRecords = onValue(recordsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) setRecords(Object.values(data));
+    });
 
-      activeTaskStore.get(1).onsuccess = (event) => {
-        const savedActiveTask = event.target.result;
-        if (savedActiveTask) {
-          setActiveTask(savedActiveTask.taskName);
-          setStartTime(savedActiveTask.startTime);
-          setIsRunning(true);
-          
-          const elapsedSeconds = Math.floor((Date.now() - savedActiveTask.startTime) / 1000);
-          setTimer(elapsedSeconds);
-        }
-      };
+    // Listen for isRunning changes
+    const unsubIsRunning = onValue(isRunningRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data !== undefined) setIsRunning(data);
+    });
+
+    return () => {
+      unsubTasks();
+      unsubActiveTask();
+      unsubTimer();
+      unsubRecords();
+      unsubIsRunning();
     };
   }, []);
 
-  useEffect(() => {
-    const savedTasks = localStorage.getItem('tasks');
-    if (savedTasks) {
-      setTasks(JSON.parse(savedTasks));
-    }
-  }, []);
-
+  // Timer effect
   useEffect(() => {
     let interval;
-    if (isRunning && startTime) {
+    if (isRunning) {
       interval = setInterval(() => {
-        const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
-        setTimer(elapsedSeconds);
+        const newTimer = timer + 1;
+        setTimer(newTimer);
+        set(ref(database, 'timer'), newTimer);
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isRunning, startTime]);
-
-  const saveActiveTask = (taskName, timestamp) => {
-    const request = indexedDB.open('TaskTimerDB', 1);
-    
-    request.onsuccess = (event) => {
-      const db = event.target.result;
-      const transaction = db.transaction(['activeTask'], 'readwrite');
-      const store = transaction.objectStore('activeTask');
-      
-      store.put({
-        id: 1,
-        taskName: taskName,
-        startTime: timestamp
-      });
-    };
-  };
-
-  const saveRecord = (record) => {
-    const request = indexedDB.open('TaskTimerDB', 1);
-    
-    request.onsuccess = (event) => {
-      const db = event.target.result;
-      const transaction = db.transaction(['records'], 'readwrite');
-      const store = transaction.objectStore('records');
-      
-      store.add(record);
-    };
-  };
-
-  const clearActiveTask = () => {
-    const request = indexedDB.open('TaskTimerDB', 1);
-    
-    request.onsuccess = (event) => {
-      const db = event.target.result;
-      const transaction = db.transaction(['activeTask'], 'readwrite');
-      const store = transaction.objectStore('activeTask');
-      
-      store.delete(1);
-    };
-  };
-
-  const handleTaskStart = (taskName) => {
-    if (activeTask) {
-      const record = {
-        task: activeTask,
-        duration: timer,
-        startTime: startTime,
-        endTime: Date.now()
-      };
-      setRecords(prev => [...prev, record]);
-      saveRecord(record);
-      clearActiveTask();
-    }
-
-    if (taskName === activeTask) {
-      setActiveTask(null);
-      setIsRunning(false);
-      setStartTime(null);
-      clearActiveTask();
-    } else {
-      const now = Date.now();
-      setActiveTask(taskName);
-      setStartTime(now);
-      setTimer(0);
-      setIsRunning(true);
-      saveActiveTask(taskName, now);
-    }
-  };
-
-  const handleAddNewTask = (e) => {
-    e.preventDefault();
-    if (newTaskName.trim()) {
-      const updatedTasks = [...tasks, newTaskName];
-      setTasks(updatedTasks);
-      localStorage.setItem('tasks', JSON.stringify(updatedTasks));
-      setNewTaskName('');
-      setShowNewTaskForm(false);
-    }
-  };
+  }, [isRunning, timer]);
 
   const formatTime = (seconds) => {
     const hrs = Math.floor(seconds / 3600);
@@ -160,24 +96,56 @@ const TaskTimer = () => {
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const handleTaskStart = (taskName) => {
+    if (activeTask) {
+      // Save current task record
+      const record = {
+        task: activeTask,
+        duration: timer,
+        endTime: new Date().toISOString()
+      };
+      const newRecordRef = push(ref(database, 'records'));
+      set(newRecordRef, record);
+    }
+
+    if (taskName === activeTask) {
+      // Stop current task
+      set(ref(database, 'activeTask'), null);
+      set(ref(database, 'isRunning'), false);
+    } else {
+      // Start new task
+      set(ref(database, 'activeTask'), taskName);
+      set(ref(database, 'timer'), 0);
+      set(ref(database, 'isRunning'), true);
+    }
+  };
+
+  const handleAddNewTask = (e) => {
+    e.preventDefault();
+    if (newTaskName.trim()) {
+      const updatedTasks = [...tasks, newTaskName];
+      set(ref(database, 'tasks'), updatedTasks);
+      setNewTaskName('');
+      setShowNewTaskForm(false);
+    }
+  };
+
   const downloadRecords = () => {
     let allRecords = [...records];
-    if (activeTask && startTime) {
+    if (activeTask) {
       allRecords.push({
         task: activeTask,
         duration: timer,
-        startTime: startTime,
-        endTime: Date.now()
+        endTime: new Date().toISOString()
       });
     }
 
     const csv = [
-      ['Feladat', 'Időtartam (másodperc)', 'Kezdés ideje', 'Befejezés ideje'],
+      ['Task', 'Duration (seconds)', 'End Time'],
       ...allRecords.map(record => [
         record.task,
         record.duration,
-        new Date(record.startTime).toISOString(),
-        new Date(record.endTime).toISOString()
+        record.endTime
       ])
     ].map(row => row.join(',')).join('\n');
 
@@ -186,7 +154,7 @@ const TaskTimer = () => {
     const a = document.createElement('a');
     a.setAttribute('hidden', '');
     a.setAttribute('href', url);
-    a.setAttribute('download', `feladat-rekordok-${new Date().toISOString()}.csv`);
+    a.setAttribute('download', `task-records-${new Date().toISOString()}.csv`);
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -194,20 +162,17 @@ const TaskTimer = () => {
 
   return (
     <div className="max-w-md mx-auto p-4 bg-white rounded-lg shadow">
+      {/* Active Timer Display */}
       <div className="mb-6 text-center">
         <div className="text-4xl font-bold mb-2">
           {formatTime(timer)}
         </div>
         <div className="text-gray-600">
-          {activeTask ? `Jelenlegi feladat: ${activeTask}` : 'Nincs aktív feladat'}
+          {activeTask ? `Currently tracking: ${activeTask}` : 'No active task'}
         </div>
-        {startTime && (
-          <div className="text-sm text-gray-500">
-            Kezdés: {new Date(startTime).toLocaleString()}
-          </div>
-        )}
       </div>
 
+      {/* Task Buttons */}
       <div className="space-y-2 mb-6">
         {tasks.map((task) => (
           <button
@@ -229,6 +194,7 @@ const TaskTimer = () => {
         ))}
       </div>
 
+      {/* New Task Form */}
       {showNewTaskForm ? (
         <form onSubmit={handleAddNewTask} className="mb-6">
           <div className="flex gap-2">
@@ -236,14 +202,14 @@ const TaskTimer = () => {
               type="text"
               value={newTaskName}
               onChange={(e) => setNewTaskName(e.target.value)}
-              placeholder="Feladat neve"
+              placeholder="Enter task name"
               className="flex-1 p-2 border rounded"
             />
             <button
               type="submit"
               className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
             >
-              Hozzáad
+              Add
             </button>
           </div>
         </form>
@@ -253,22 +219,18 @@ const TaskTimer = () => {
           className="w-full p-3 rounded-lg bg-blue-500 text-white hover:bg-blue-600 flex items-center justify-center gap-2 mb-6"
         >
           <Plus className="w-5 h-5" />
-          <span>Új feladat hozzáadása</span>
+          <span>Add New Task</span>
         </button>
       )}
 
+      {/* Records Summary */}
       {records.length > 0 && (
         <div className="mb-6">
-          <h3 className="font-bold mb-2">Befejezett feladatok:</h3>
+          <h3 className="font-bold mb-2">Completed Tasks:</h3>
           <div className="space-y-2">
             {records.map((record, index) => (
               <div key={index} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                <div>
-                  <div>{record.task}</div>
-                  <div className="text-sm text-gray-500">
-                    {new Date(record.startTime).toLocaleString()}
-                  </div>
-                </div>
+                <span>{record.task}</span>
                 <span>{formatTime(record.duration)}</span>
               </div>
             ))}
@@ -276,17 +238,18 @@ const TaskTimer = () => {
         </div>
       )}
 
+      {/* Download Button */}
       {(records.length > 0 || activeTask) && (
         <button
           onClick={downloadRecords}
           className="w-full p-3 rounded-lg bg-gray-800 text-white hover:bg-gray-900 flex items-center justify-center gap-2"
         >
           <Download className="w-5 h-5" />
-          <span>Adatok exportálása</span>
+          <span>Export Records</span>
         </button>
       )}
     </div>
   );
 };
 
-export default TaskTimer;
+export default SyncedTaskTimer;
