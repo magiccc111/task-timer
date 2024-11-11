@@ -53,13 +53,10 @@ const database = getDatabase(app);
 
 const TaskTimer = () => {
   const [tasks, setTasks] = useState([]);
-  const [activeTask, setActiveTask] = useState(null);
-  const [timer, setTimer] = useState(0);
-  const [isRunning, setIsRunning] = useState(false);
+  const [activeTasks, setActiveTasks] = useState({});  // Changed to object for multiple active tasks
   const [records, setRecords] = useState([]);
   const [newTaskName, setNewTaskName] = useState('');
   const [showNewTaskForm, setShowNewTaskForm] = useState(false);
-  const [lastUpdate, setLastUpdate] = useState(null);
   const [error, setError] = useState(null);
 
 
@@ -74,42 +71,21 @@ const TaskTimer = () => {
           const promises = predefinedTasks.map(taskName => 
             push(tasksRef, { name: taskName })
           );
-          try {
-            await Promise.all(promises);
-            console.log("Predefined tasks initialized successfully");
-          } catch (error) {
-            console.error("Error initializing predefined tasks:", error);
-            setError(`Failed to initialize predefined tasks: ${error.message}`);
-          }
+          await Promise.all(promises);
         } else {
           const taskList = Object.entries(data).map(([id, val]) => ({
             id,
             name: typeof val === 'string' ? val : val.name
           }));
-          console.log("Loaded existing tasks:", taskList);
           setTasks(taskList);
         }
-      }, (error) => {
-        console.error("Tasks listener error:", error);
-        setError(`Tasks error: ${error.message}`);
       });
 
-      // Active task listener
-      const activeTaskRef = ref(database, 'activeTask');
-      onValue(activeTaskRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-          setActiveTask(data.name);
-          setIsRunning(data.isRunning);
-          setTimer(data.timer);
-          setLastUpdate(data.lastUpdate);
-        } else {
-          setActiveTask(null);
-          setIsRunning(false);
-          setTimer(0);
-        }
-      }, (error) => {
-        setError(`Active task error: ${error.message}`);
+      // Active tasks listener
+      const activeTasksRef = ref(database, 'activeTasks');
+      onValue(activeTasksRef, (snapshot) => {
+        const data = snapshot.val() || {};
+        setActiveTasks(data);
       });
 
       // Records listener
@@ -126,41 +102,48 @@ const TaskTimer = () => {
         } else {
           setRecords([]);
         }
-      }, (error) => {
-        setError(`Records error: ${error.message}`);
       });
     } catch (error) {
       setError(`Setup error: ${error.message}`);
     }
   }, []);
 
-  // Timer effect
   useEffect(() => {
-    let interval;
-    if (isRunning) {
-      interval = setInterval(() => {
-        const now = Date.now();
-        const timeDiff = lastUpdate ? Math.floor((now - lastUpdate) / 1000) : 0;
-        const newTimer = timer + timeDiff;
-        
-        setTimer(newTimer);
-        setLastUpdate(now);
-        
-        set(ref(database, 'activeTask'), {
-          name: activeTask,
-          isRunning: true,
-          timer: newTimer,
-          lastUpdate: now,
-          workerCount: 1
-        });
-      }, 1000);
-    }
-    return () => {
-      if (interval) {
-        clearInterval(interval);
+    const intervals = {};
+
+    Object.entries(activeTasks).forEach(([taskName, taskData]) => {
+      if (taskData.isRunning) {
+        intervals[taskName] = setInterval(() => {
+          const now = Date.now();
+          const timeDiff = taskData.lastUpdate ? Math.floor((now - taskData.lastUpdate) / 1000) : 0;
+          const newTimer = taskData.timer + timeDiff;
+
+          setActiveTasks(prev => ({
+            ...prev,
+            [taskName]: {
+              ...taskData,
+              timer: newTimer,
+              lastUpdate: now
+            }
+          }));
+
+          // Update Firebase
+          update(ref(database, 'activeTasks'), {
+            [taskName]: {
+              ...taskData,
+              timer: newTimer,
+              lastUpdate: now
+            }
+          });
+        }, 1000);
       }
+    });
+
+    return () => {
+      Object.values(intervals).forEach(interval => clearInterval(interval));
     };
-  }, [isRunning, timer, activeTask, lastUpdate]);
+  }, [activeTasks]);
+  
 
   const formatTime = (seconds) => {
     const hrs = Math.floor(seconds / 3600);
@@ -171,59 +154,59 @@ const TaskTimer = () => {
 
   const handleTaskStart = async (taskName) => {
     try {
-      if (activeTask === taskName) {
-        // Same task - toggle running state
-        const newIsRunning = !isRunning;
-        setIsRunning(newIsRunning);
-        await set(ref(database, 'activeTask'), {
-          name: activeTask,
+      const taskData = activeTasks[taskName];
+      if (taskData) {
+        // Task is already active - toggle running state
+        const newIsRunning = !taskData.isRunning;
+        const newTaskData = {
+          ...taskData,
           isRunning: newIsRunning,
-          timer,
-          lastUpdate: Date.now(),
-          workerCount: 1
-        });
+          lastUpdate: Date.now()
+        };
 
         if (!newIsRunning) {
           // If stopping the task, save it as a record
           const recordsRef = ref(database, 'records');
           await push(recordsRef, {
-            task: activeTask,
-            duration: timer,
+            task: taskName,
+            duration: taskData.timer,
             endTime: new Date().toISOString(),
             workerCount: 1
           });
-          // Reset active task
-          await set(ref(database, 'activeTask'), null);
-          setActiveTask(null);
-          setTimer(0);
+
+          // Remove from active tasks
+          const { [taskName]: removed, ...remainingTasks } = activeTasks;
+          await set(ref(database, 'activeTasks'), remainingTasks);
+          setActiveTasks(remainingTasks);
+        } else {
+          // Update the running state
+          await update(ref(database, 'activeTasks'), {
+            [taskName]: newTaskData
+          });
+          setActiveTasks(prev => ({
+            ...prev,
+            [taskName]: newTaskData
+          }));
         }
       } else {
-        // Different task - save current if exists and start new
-        if (activeTask) {
-          const recordsRef = ref(database, 'records');
-          await push(recordsRef, {
-            task: activeTask,
-            duration: timer,
-            endTime: new Date().toISOString(),
-            workerCount: 1
-          });
-        }
-
         // Start new task
-        setActiveTask(taskName);
-        setIsRunning(true);
-        setTimer(0);
-        setLastUpdate(Date.now());
-        await set(ref(database, 'activeTask'), {
-          name: taskName,
+        const newTaskData = {
           isRunning: true,
           timer: 0,
           lastUpdate: Date.now(),
           workerCount: 1
+        };
+
+        await update(ref(database, 'activeTasks'), {
+          [taskName]: newTaskData
         });
+        setActiveTasks(prev => ({
+          ...prev,
+          [taskName]: newTaskData
+        }));
       }
     } catch (error) {
-      setError(`Task start error: ${error.message}`);
+      setError(`Task operation error: ${error.message}`);
     }
   };
 
@@ -303,34 +286,38 @@ const TaskTimer = () => {
   }
 
   return (
-    <div className="max-w-md mx-auto p-4 bg-white rounded-lg shadow">
-      {/* Timer Display */}
-      <div className="mb-6 text-center">
-        <div className="text-4xl font-bold mb-2">
-          {formatTime(timer)}
-        </div>
-        <div className="text-gray-600">
-          {activeTask ? `Currently tracking: ${activeTask}` : 'No active task'}
-        </div>
+    <div className="max-w-4xl mx-auto p-4 bg-white rounded-lg shadow">
+      {/* Active Tasks Display */}
+      <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+        {Object.entries(activeTasks).map(([taskName, taskData]) => (
+          <div key={taskName} className="p-4 bg-gray-50 rounded-lg">
+            <div className="text-xl font-bold mb-2">
+              {formatTime(taskData.timer)}
+            </div>
+            <div className="text-gray-600">
+              {taskName}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Task List */}
-      <div className="space-y-2 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 mb-6">
         {tasks.map((task) => (
           <div key={task.id} className="flex gap-2">
             <button
               onClick={() => handleTaskStart(task.name)}
               className={`flex-1 p-3 rounded-lg flex items-center justify-between ${
-                task.name === activeTask
-                  ? isRunning 
+                activeTasks[task.name]
+                  ? activeTasks[task.name].isRunning 
                     ? 'bg-green-500 text-white'
                     : 'bg-yellow-500 text-white'
                   : 'bg-gray-100 hover:bg-gray-200'
               }`}
             >
               <span>{task.name}</span>
-              {task.name === activeTask ? (
-                isRunning ? (
+              {activeTasks[task.name] ? (
+                activeTasks[task.name].isRunning ? (
                   <Pause className="w-5 h-5" />
                 ) : (
                   <Play className="w-5 h-5" />
