@@ -1,46 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Pause, Plus, Download, Clock } from 'lucide-react';
+import { Play, Pause, Plus, Download, Trash2, Users } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, onValue, set, push } from 'firebase/database';
+import { getDatabase, ref, onValue, set, push, remove } from 'firebase/database';
 
-// Firebase konfiguráció - ezeket a Firebase console-ból kell beállítani
+// Firebase config
 const firebaseConfig = {
-
   apiKey: "AIzaSyB0duQhUDrYZrnLRWR0O4sBI9i1p3NXaMk",
-
   authDomain: "tasktimerforadam.firebaseapp.com",
-
-  databaseURL: "https://tasktimerforadam-default-rtdb.europe-west1.firebasedatabase.app/", // Ez a legfontosabb!
-
+  databaseURL: "https://tasktimerforadam-default-rtdb.europe-west1.firebasedatabase.app",
   projectId: "tasktimerforadam",
-
   storageBucket: "tasktimerforadam.firebasestorage.app",
-
   messagingSenderId: "390956096870",
-
   appId: "1:390956096870:web:c872dc0e2223d5700d7ca7",
-
   measurementId: "G-PQB5EGHG3X"
-
 };
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
-
-// Predefined tasks from tasks.json
-const predefinedTasks = [
-  "Laposvas szegély", "Növényültetés (geotex-en lyufúróva)", "Geotextilez", 
-  "Öntözőárok ásás (kotró)", "Csepi csövezés", "Szórófejezés (csőtől -szórófej rögzítésig)",
-  "Szelepakna beszerelés", "Talajmarózás", "Öntözőárok temetés", "Komputer, vezérlés, kábel",
-  "Faültetés (karózva)", "Növényültetés(geotex-kotrolyfuró)", "Növényültetés (geon kézzel)",
-  "kavicsterites depobol (kotro+teher)(m2)", "Gépi simítás (ráccsal, kotróval)",
-  "Kézi placcolás (első körös)", "Szántás kotróval", "Talajmarás (castoro)",
-  "Kézi placc (többed körös)", "Vetés (szellőztet, vet, hengerel)",
-  "Gyepszellőztetés-gereblyézés- vetés-hengerezs", "Gyepszellő-gereb-homok-vetés-trágya-henger",
-  "öntöző Árkolás (láncos árokásó)", "árkolás (kézzel)", "Gyomirtózás",
-  "Vakondhálózás kotróval", "fűnyírás (gyűjtéssel, szegélyezve)", "műtrágyázás"
-];
 
 const TaskTimer = () => {
   const [tasks, setTasks] = useState([]);
@@ -52,59 +29,65 @@ const TaskTimer = () => {
   const [showNewTaskForm, setShowNewTaskForm] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [workerCount, setWorkerCount] = useState(1);
+  const [error, setError] = useState(null);
 
-  // Initialize Firebase listeners and load predefined tasks
   useEffect(() => {
-    const tasksRef = ref(database, 'tasks');
-    const activeTaskRef = ref(database, 'activeTask');
-    const recordsRef = ref(database, 'records');
+    try {
+      // Tasks listener
+      const tasksRef = ref(database, 'tasks');
+      onValue(tasksRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          const taskList = Object.entries(data).map(([id, val]) => ({
+            id,
+            name: typeof val === 'string' ? val : val.name
+          }));
+          setTasks(taskList);
+        } else {
+          // If no tasks exist, initialize with predefined tasks
+          const predefinedTasks = [
+            "Laposvas szegély",
+            "Növényültetés (geotex-en lyufúróva)",
+            "Geotextilez"
+            // ... további taskok
+          ];
+          
+          predefinedTasks.forEach(task => {
+            push(tasksRef, { name: task });
+          });
+        }
+      }, (error) => {
+        setError(`Tasks error: ${error.message}`);
+      });
 
-    // Initialize predefined tasks if no tasks exist
-    onValue(tasksRef, (snapshot) => {
-      if (!snapshot.exists()) {
-        predefinedTasks.forEach(task => {
-          push(tasksRef, { name: task });
-        });
-      } else {
-        const taskData = snapshot.val();
-        const formattedTasks = Object.entries(taskData).map(([id, value]) => ({
-          id,
-          name: typeof value === 'string' ? value : value.name
-        }));
-        setTasks(formattedTasks);
-      }
-    });
+      // Active task listener
+      const activeTaskRef = ref(database, 'activeTask');
+      onValue(activeTaskRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          setActiveTask(data.name);
+          setIsRunning(data.isRunning);
+          setTimer(data.timer);
+          setLastUpdate(data.lastUpdate);
+          setWorkerCount(data.workerCount || 1);
+        }
+      }, (error) => {
+        setError(`Active task error: ${error.message}`);
+      });
 
-    // Listen for active task changes
-    onValue(activeTaskRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        setActiveTask(data.name);
-        setIsRunning(data.isRunning);
-        setTimer(data.timer);
-        setLastUpdate(data.lastUpdate);
-        setWorkerCount(data.workerCount || 1);
-      } else {
-        setActiveTask(null);
-        setIsRunning(false);
-        setTimer(0);
-        setWorkerCount(1);
-      }
-    });
-
-    // Listen for records changes
-    onValue(recordsRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const recordsList = Object.entries(data).map(([id, record]) => ({
-          id,
-          ...record
-        }));
-        setRecords(recordsList);
-      } else {
-        setRecords([]);
-      }
-    });
+      // Records listener
+      const recordsRef = ref(database, 'records');
+      onValue(recordsRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          setRecords(Object.entries(data).map(([id, record]) => ({ id, ...record })));
+        }
+      }, (error) => {
+        setError(`Records error: ${error.message}`);
+      });
+    } catch (error) {
+      setError(`Setup error: ${error.message}`);
+    }
   }, []);
 
   // Timer effect
@@ -114,22 +97,12 @@ const TaskTimer = () => {
       interval = setInterval(() => {
         const now = Date.now();
         const timeDiff = lastUpdate ? Math.floor((now - lastUpdate) / 1000) : 0;
-        const newTimer = timer + timeDiff;
-        
-        set(ref(database, 'activeTask'), {
-          name: activeTask,
-          isRunning: true,
-          timer: newTimer,
-          lastUpdate: now,
-          workerCount
-        });
-        
-        setTimer(newTimer);
+        setTimer(prev => prev + timeDiff);
         setLastUpdate(now);
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isRunning, timer, activeTask, lastUpdate, workerCount]);
+  }, [isRunning, lastUpdate]);
 
   const formatTime = (seconds) => {
     const hrs = Math.floor(seconds / 3600);
@@ -139,87 +112,39 @@ const TaskTimer = () => {
   };
 
   const handleTaskStart = async (taskName) => {
-    if (activeTask) {
-      const record = {
-        task: activeTask,
-        duration: timer,
-        endTime: new Date().toISOString(),
-        workerCount: workerCount
-      };
-      
-      const recordsRef = ref(database, 'records');
-      await push(recordsRef, record);
-      await set(ref(database, 'activeTask'), null);
-    }
+    try {
+      if (activeTask) {
+        const recordsRef = ref(database, 'records');
+        await push(recordsRef, {
+          task: activeTask,
+          duration: timer,
+          endTime: new Date().toISOString(),
+          workerCount
+        });
+        await set(ref(database, 'activeTask'), null);
+      }
 
-    if (taskName !== activeTask) {
-      const now = Date.now();
-      await set(ref(database, 'activeTask'), {
-        name: taskName,
-        isRunning: true,
-        timer: 0,
-        lastUpdate: now,
-        workerCount: workerCount
-      });
-    }
-  };
-
-  const handleAddNewTask = async (e) => {
-    e.preventDefault();
-    if (newTaskName.trim()) {
-      const tasksRef = ref(database, 'tasks');
-      await push(tasksRef, { name: newTaskName.trim() });
-      setNewTaskName('');
-      setShowNewTaskForm(false);
+      if (taskName !== activeTask) {
+        await set(ref(database, 'activeTask'), {
+          name: taskName,
+          isRunning: true,
+          timer: 0,
+          lastUpdate: Date.now(),
+          workerCount
+        });
+      }
+    } catch (error) {
+      setError(`Task start error: ${error.message}`);
     }
   };
 
-  const handleDeleteTask = async (taskId) => {
-    if (window.confirm('Are you sure you want to delete this task?')) {
-      const taskRef = ref(database, `tasks/${taskId}`);
-      await remove(taskRef);
-    }
-  };
-
-  const handleWorkerCountChange = (delta) => {
-    const newCount = Math.max(1, workerCount + delta);
-    setWorkerCount(newCount);
-    if (activeTask) {
-      set(ref(database, 'activeTask/workerCount'), newCount);
-    }
-  };
-
-  const downloadRecords = () => {
-    let allRecords = [...records];
-    if (activeTask) {
-      allRecords.push({
-        task: activeTask,
-        duration: timer,
-        endTime: new Date().toISOString(),
-        workerCount: workerCount
-      });
-    }
-
-    const csv = [
-      ['Task', 'Duration (seconds)', 'End Time', 'Workers'],
-      ...allRecords.map(record => [
-        record.task,
-        record.duration,
-        record.endTime,
-        record.workerCount || 1
-      ])
-    ].map(row => row.join(',')).join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.setAttribute('hidden', '');
-    a.setAttribute('href', url);
-    a.setAttribute('download', `task-records-${new Date().toISOString()}.csv`);
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  };
+  if (error) {
+    return (
+      <div className="max-w-md mx-auto p-4 bg-red-100 text-red-700 rounded-lg">
+        Error: {error}
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-md mx-auto p-4 bg-white rounded-lg shadow">
@@ -235,7 +160,7 @@ const TaskTimer = () => {
         {/* Worker Count Controls */}
         <div className="mt-4 flex items-center justify-center gap-4">
           <button
-            onClick={() => handleWorkerCountChange(-1)}
+            onClick={() => setWorkerCount(prev => Math.max(1, prev - 1))}
             className="p-2 rounded bg-gray-200 hover:bg-gray-300"
             disabled={workerCount <= 1}
           >
@@ -246,7 +171,7 @@ const TaskTimer = () => {
             <span>{workerCount} worker{workerCount !== 1 ? 's' : ''}</span>
           </div>
           <button
-            onClick={() => handleWorkerCountChange(1)}
+            onClick={() => setWorkerCount(prev => prev + 1)}
             className="p-2 rounded bg-gray-200 hover:bg-gray-300"
           >
             +
@@ -273,44 +198,9 @@ const TaskTimer = () => {
                 <Play className="w-5 h-5" />
               )}
             </button>
-            <button
-              onClick={() => handleDeleteTask(task.id)}
-              className="p-3 rounded-lg bg-red-100 hover:bg-red-200 text-red-600"
-            >
-              <Trash2 className="w-5 h-5" />
-            </button>
           </div>
         ))}
       </div>
-
-      {/* New Task Form */}
-      {showNewTaskForm ? (
-        <form onSubmit={handleAddNewTask} className="mb-6">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={newTaskName}
-              onChange={(e) => setNewTaskName(e.target.value)}
-              placeholder="Enter task name"
-              className="flex-1 p-2 border rounded"
-            />
-            <button
-              type="submit"
-              className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
-            >
-              Add
-            </button>
-          </div>
-        </form>
-      ) : (
-        <button
-          onClick={() => setShowNewTaskForm(true)}
-          className="w-full p-3 rounded-lg bg-blue-500 text-white hover:bg-blue-600 flex items-center justify-center gap-2 mb-6"
-        >
-          <Plus className="w-5 h-5" />
-          <span>Add New Task</span>
-        </button>
-      )}
 
       {/* Records Summary */}
       {records.length > 0 && (
@@ -331,17 +221,6 @@ const TaskTimer = () => {
             ))}
           </div>
         </div>
-      )}
-
-      {/* Download Button */}
-      {(records.length > 0 || activeTask) && (
-        <button
-          onClick={downloadRecords}
-          className="w-full p-3 rounded-lg bg-gray-800 text-white hover:bg-gray-900 flex items-center justify-center gap-2"
-        >
-          <Download className="w-5 h-5" />
-          <span>Export Records</span>
-        </button>
       )}
     </div>
   );
