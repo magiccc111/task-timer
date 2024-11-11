@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Play, Pause, Plus, Download, Users, Trash2 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, onValue, set, push, update } from 'firebase/database';
+import { getDatabase, ref, onValue, set, push, update, remove } from 'firebase/database';
 
 // Firebase config
 const firebaseConfig = {
