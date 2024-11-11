@@ -10,6 +10,8 @@ const firebaseConfig = {
 
   authDomain: "tasktimerforadam.firebaseapp.com",
 
+  databaseURL: "https://tasktimerforadam-default-rtdb.europe-west1.firebasedatabase.app/", // Ez a legfontosabb!
+
   projectId: "tasktimerforadam",
 
   storageBucket: "tasktimerforadam.firebasestorage.app",
@@ -21,7 +23,6 @@ const firebaseConfig = {
   measurementId: "G-PQB5EGHG3X"
 
 };
-
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
