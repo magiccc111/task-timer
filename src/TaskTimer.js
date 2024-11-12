@@ -44,7 +44,7 @@ const predefinedTasks = [
   "Gyomirtózás",
   "Vakondhálózás kotróval", 
   "fűnyírás (gyűjtéssel, szegélyezve)", 
-  "műtrágyázás"
+  "műtrágyázás",
   "Téliesítés (zónák)"
 ];
 
