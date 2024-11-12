@@ -45,6 +45,7 @@ const predefinedTasks = [
   "Vakondhálózás kotróval", 
   "fűnyírás (gyűjtéssel, szegélyezve)", 
   "műtrágyázás"
+  "Téliesítés (zónák)"
 ];
 
 // Initialize Firebase
