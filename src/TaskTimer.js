@@ -152,6 +152,48 @@ const TaskTimer = () => {
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const downloadRecords = () => {
+    // Get all current records
+    let allRecords = [...records];
+    
+    // Add all currently active tasks as records
+    Object.entries(activeTasks).forEach(([taskName, taskData]) => {
+      allRecords.push({
+        task: taskName,
+        duration: taskData.timer,
+        endTime: new Date().toISOString(),
+        workerCount: taskData.workerCount || 1
+      });
+    });
+
+    // Sort records by end time
+    allRecords.sort((a, b) => new Date(b.endTime) - new Date(a.endTime));
+
+    // Create CSV content
+    const csv = [
+      ['Task', 'Duration (seconds)', 'Duration (formatted)', 'End Time', 'Workers'],
+      ...allRecords.map(record => [
+        record.task,
+        record.duration,
+        formatTime(record.duration),
+        record.endTime,
+        record.workerCount
+      ])
+    ].map(row => row.join(',')).join('\n');
+
+    // Create and download the file
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.setAttribute('hidden', '');
+    a.setAttribute('href', url);
+    a.setAttribute('download', `task-records-${new Date().toISOString()}.csv`);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  };
+
   const handleTaskStart = async (taskName) => {
     try {
       const taskData = activeTasks[taskName];
@@ -404,7 +446,16 @@ const TaskTimer = () => {
         </div>
       )}
 
-      {/* Download Button remains unchanged... */}
+      {/* Add Download Button at the bottom */}
+      {(records.length > 0 || Object.keys(activeTasks).length > 0) && (
+        <button
+          onClick={downloadRecords}
+          className="w-full p-3 rounded-lg bg-blue-500 text-white hover:bg-blue-600 flex items-center justify-center gap-2"
+        >
+          <Download className="w-5 h-5" />
+          <span>Download Records</span>
+        </button>
+      )}
     </div>
   );
 };
