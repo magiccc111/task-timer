@@ -96,7 +96,7 @@ const TaskTimer = () => {
           const recordsList = Object.entries(data).map(([id, record]) => ({
             id,
             ...record,
-            workerCount: record.workerCount || 1
+            workerCount: record.workerCount || 1,
             units: record.units || 0  // Add this line
           }));
           setRecords(recordsList);
