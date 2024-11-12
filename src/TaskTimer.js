@@ -287,37 +287,6 @@ const TaskTimer = () => {
     }
   };
 
-  const downloadRecords = () => {
-    let allRecords = [...records];
-    if (activeTask) {
-      allRecords.push({
-        task: activeTask,
-        duration: timer,
-        endTime: new Date().toISOString(),
-        workerCount: 1
-      });
-    }
-
-    const csv = [
-      ['Task', 'Duration (seconds)', 'End Time', 'Workers'],
-      ...allRecords.map(record => [
-        record.task,
-        record.duration,
-        record.endTime,
-        record.workerCount
-      ])
-    ].map(row => row.join(',')).join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.setAttribute('hidden', '');
-    a.setAttribute('href', url);
-    a.setAttribute('download', `task-records-${new Date().toISOString()}.csv`);
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  };
 
   if (error) {
     return (
