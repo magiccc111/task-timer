@@ -97,6 +97,7 @@ const TaskTimer = () => {
             id,
             ...record,
             workerCount: record.workerCount || 1
+            units: record.units || 0  // Add this line
           }));
           setRecords(recordsList);
         } else {
@@ -171,13 +172,14 @@ const TaskTimer = () => {
 
     // Create CSV content
     const csv = [
-      ['Task', 'Duration (seconds)', 'Duration (formatted)', 'End Time', 'Workers'],
+      ['Task', 'Duration (seconds)', 'Duration (formatted)', 'End Time', 'Workers', 'Units'],  // Modified header
       ...allRecords.map(record => [
         record.task,
         record.duration,
         formatTime(record.duration),
         record.endTime,
-        record.workerCount
+        record.workerCount,
+        record.units || 0  // Add units to export
       ])
     ].map(row => row.join(',')).join('\n');
 
@@ -214,6 +216,7 @@ const TaskTimer = () => {
             duration: taskData.timer,
             endTime: new Date().toISOString(),
             workerCount: 1
+            units: 0  // Add this line
           });
 
           // Remove from active tasks
@@ -259,6 +262,16 @@ const TaskTimer = () => {
       await update(recordRef, { workerCount: newWorkerCount });
     } catch (error) {
       setError(`Worker count update error: ${error.message}`);
+    }
+  };
+
+  const handleCompletedTaskUnitsChange = async (recordId, currentUnits, delta) => {
+    const newUnits = Math.max(0, currentUnits + delta);
+    try {
+      const recordRef = ref(database, `records/${recordId}`);
+      await update(recordRef, { units: newUnits });
+    } catch (error) {
+      setError(`Units update error: ${error.message}`);
     }
   };
 
@@ -383,31 +396,55 @@ const TaskTimer = () => {
                     {formatTime(record.duration)}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleCompletedTaskWorkerChange(record.id, record.workerCount, -1)}
-                    className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
-                    disabled={record.workerCount <= 1}
-                  >
-                    -
-                  </button>
-                  <div className="flex items-center gap-1">
-                    <Users className="w-4 h-4" />
-                    <span>{record.workerCount}</span>
+                <div className="flex items-center gap-4"> {/* Increased gap for better spacing */}
+                  {/* Units controls */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleCompletedTaskUnitsChange(record.id, record.units, -1)}
+                      className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
+                      disabled={record.units <= 0}
+                    >
+                      -
+                    </button>
+                    <div className="flex items-center gap-1 min-w-[60px] justify-center">
+                      <span>{record.units}</span>
+                      <span className="text-xs text-gray-500">units</span>
+                    </div>
+                    <button
+                      onClick={() => handleCompletedTaskUnitsChange(record.id, record.units, 1)}
+                      className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
+                    >
+                      +
+                    </button>
                   </div>
-                  <button
-                    onClick={() => handleCompletedTaskWorkerChange(record.id, record.workerCount, 1)}
-                    className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
-                  >
-                    +
-                  </button>
-                  <button
-                    onClick={() => handleDeleteRecord(record.id)}
-                    className="p-1 rounded bg-red-100 hover:bg-red-200 text-red-600"
-                    title="Delete task"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  
+                  {/* Existing workers controls */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleCompletedTaskWorkerChange(record.id, record.workerCount, -1)}
+                      className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
+                      disabled={record.workerCount <= 1}
+                    >
+                      -
+                    </button>
+                    <div className="flex items-center gap-1">
+                      <Users className="w-4 h-4" />
+                      <span>{record.workerCount}</span>
+                    </div>
+                    <button
+                      onClick={() => handleCompletedTaskWorkerChange(record.id, record.workerCount, 1)}
+                      className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
+                    >
+                      +
+                    </button>
+                    <button
+                      onClick={() => handleDeleteRecord(record.id)}
+                      className="p-1 rounded bg-red-100 hover:bg-red-200 text-red-600"
+                      title="Delete task"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
