@@ -215,7 +215,7 @@ const TaskTimer = () => {
             task: taskName,
             duration: taskData.timer,
             endTime: new Date().toISOString(),
-            workerCount: 1
+            workerCount: 1,
             units: 0  // Add this line
           });
 
