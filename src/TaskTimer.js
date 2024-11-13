@@ -54,75 +54,34 @@ const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
 const auth = getAuth(app);
 
+
 const TaskTimer = () => {
+  // Auth states
+  const [user, setUser] = useState(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authError, setAuthError] = useState(null);
+
+  // App states
   const [tasks, setTasks] = useState([]);
-  const [activeTasks, setActiveTasks] = useState({});  // Changed to object for multiple active tasks
+  const [activeTasks, setActiveTasks] = useState({});
   const [records, setRecords] = useState([]);
   const [newTaskName, setNewTaskName] = useState('');
   const [showNewTaskForm, setShowNewTaskForm] = useState(false);
   const [error, setError] = useState(null);
-  const [user, setUser] = useState(null);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  
 
-
+  // Auth listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
-      setError(null);
+      setAuthError(null);
     });
-
     return () => unsubscribe();
   }, []);
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-    } catch (error) {
-      setError(error.message);
-    }
-  };
-
-  if (!user) {
-    return (
-      <div className="max-w-md mx-auto mt-10 p-6 bg-white rounded-lg shadow-lg">
-        <h2 className="text-2xl font-bold mb-6">Login to TaskTimer</h2>
-        {error && <div className="mb-4 text-red-500">{error}</div>}
-        <form onSubmit={handleLogin}>
-          <div className="mb-4">
-            <label className="block text-gray-700 mb-2">Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full p-2 border rounded"
-              required
-            />
-          </div>
-          <div className="mb-6">
-            <label className="block text-gray-700 mb-2">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full p-2 border rounded"
-              required
-            />
-          </div>
-          <button
-            type="submit"
-            className="w-full bg-blue-500 text-white p-3 rounded hover:bg-blue-600"
-          >
-            Login
-          </button>
-        </form>
-      </div>
-    );
-  }
 
   useEffect(() => {
+    if (!user) return;
     try {
       // Tasks listener
       const tasksRef = ref(database, 'tasks');
@@ -152,24 +111,30 @@ const TaskTimer = () => {
 
       // Records listener
       const recordsRef = ref(database, 'records');
-      onValue(recordsRef, (snapshot) => {
+      const recordsUnsubscribe = onValue(recordsRef, (snapshot) => {
         const data = snapshot.val();
         if (data) {
           const recordsList = Object.entries(data).map(([id, record]) => ({
             id,
             ...record,
             workerCount: record.workerCount || 1,
-            units: record.units || 0  // Add this line
+            units: record.units || 0
           }));
           setRecords(recordsList);
         } else {
           setRecords([]);
         }
       });
+
+      return () => {
+        tasksUnsubscribe();
+        activeTasksUnsubscribe();
+        recordsUnsubscribe();
+      };
     } catch (error) {
       setError(`Setup error: ${error.message}`);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     const intervals = {};
@@ -206,7 +171,58 @@ const TaskTimer = () => {
       Object.values(intervals).forEach(interval => clearInterval(interval));
     };
   }, [activeTasks]);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (error) {
+      setAuthError(error.message);
+    }
+  };
   
+  // Show login screen if not authenticated
+  if (!user) {
+    return (
+      <div className="max-w-md mx-auto mt-10 p-6 bg-white rounded-lg shadow-lg">
+        <h2 className="text-2xl font-bold mb-6">Bejelentkezés</h2>
+        {authError && (
+          <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">
+            {authError}
+          </div>
+        )}
+        <form onSubmit={handleLogin}>
+          <div className="mb-4">
+            <label className="block text-gray-700 mb-2">Email cím</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full p-2 border rounded"
+              required
+            />
+          </div>
+          <div className="mb-6">
+            <label className="block text-gray-700 mb-2">Jelszó</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full p-2 border rounded"
+              required
+            />
+          </div>
+          <button
+            type="submit"
+            className="w-full bg-blue-500 text-white p-3 rounded hover:bg-blue-600"
+          >
+            Bejelentkezés
+          </button>
+        </form>
+      </div>
+    );
+  }
+
 
   const formatTime = (seconds) => {
     const hrs = Math.floor(seconds / 3600);
