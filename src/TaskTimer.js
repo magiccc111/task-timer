@@ -121,6 +121,8 @@ const TaskTimer = () => {
       </div>
     );
   }
+
+  useEffect(() => {
     try {
       // Tasks listener
       const tasksRef = ref(database, 'tasks');
