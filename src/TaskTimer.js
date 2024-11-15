@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Pause, Plus, Download, Users, Trash2 } from 'lucide-react';
+import { Play, Pause, Plus, Download, Users, Trash2, Edit2, Check, X } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, onValue, set, push, update, remove } from 'firebase/database';
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
@@ -69,6 +69,12 @@ const TaskTimer = () => {
   const [newTaskName, setNewTaskName] = useState('');
   const [showNewTaskForm, setShowNewTaskForm] = useState(false);
   const [error, setError] = useState(null);
+
+  const [editingRecord, setEditingRecord] = useState(null);
+  const [editValues, setEditValues] = useState({
+    units: 0,
+    duration: 0
+  });
 
   // Auth listener
   useEffect(() => {
@@ -224,6 +230,41 @@ const TaskTimer = () => {
   }
 
 
+  const startEditing = (record) => {
+    setEditingRecord(record.id);
+    setEditValues({
+      units: record.units,
+      duration: record.duration
+    });
+  };
+
+  const cancelEditing = () => {
+    setEditingRecord(null);
+    setEditValues({
+      units: 0,
+      duration: 0
+    });
+  };
+
+  const handleEditSave = async (recordId) => {
+    try {
+      const recordRef = ref(database, `records/${recordId}`);
+      await update(recordRef, {
+        units: Number(editValues.units),
+        duration: Number(editValues.duration)
+      });
+      setEditingRecord(null);
+    } catch (error) {
+      setError(`Edit update error: ${error.message}`);
+    }
+  };
+
+   // Helper function to parse duration string to seconds
+  const parseDurationString = (durationStr) => {
+    const [hours, minutes, seconds] = durationStr.split(':').map(Number);
+    return hours * 3600 + minutes * 60 + seconds;
+  };
+
   const formatTime = (seconds) => {
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
@@ -367,6 +408,8 @@ const TaskTimer = () => {
     }
   };
 
+
+
   const handleDeleteRecord = async (recordId) => {
     try {
       if (window.confirm('Biztosan törölni szeretnéd ezt a feladatot?')) {
@@ -379,6 +422,8 @@ const TaskTimer = () => {
   };
 
 
+
+
   if (error) {
     return (
       <div className="max-w-md mx-auto p-4 bg-red-100 text-red-700 rounded-lg">
@@ -386,6 +431,97 @@ const TaskTimer = () => {
       </div>
     );
   }
+
+  const renderCompletedTasks = () => (
+    <div className="mb-6">
+      <h3 className="font-bold mb-2">Completed Tasks:</h3>
+      <div className="space-y-2">
+        {records.map((record) => (
+          <div key={record.id} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+            <div className="flex-1">
+              <div>{record.task}</div>
+              {editingRecord === record.id ? (
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="text"
+                    value={formatTime(editValues.duration)}
+                    onChange={(e) => {
+                      const seconds = parseDurationString(e.target.value);
+                      setEditValues(prev => ({ ...prev, duration: seconds }));
+                    }}
+                    className="w-24 px-2 py-1 border rounded"
+                    placeholder="HH:MM:SS"
+                  />
+                </div>
+              ) : (
+                <div className="text-sm text-gray-500">
+                  {formatTime(record.duration)}
+                </div>
+              )}
+            </div>
+            
+            <div className="flex items-center gap-4">
+              {editingRecord === record.id ? (
+                // Edit mode
+                <>
+                  <input
+                    type="number"
+                    value={editValues.units}
+                    onChange={(e) => setEditValues(prev => ({ ...prev, units: e.target.value }))}
+                    className="w-20 px-2 py-1 border rounded"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleEditSave(record.id)}
+                      className="p-1 rounded bg-green-100 hover:bg-green-200 text-green-600"
+                      title="Save changes"
+                    >
+                      <Check className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={cancelEditing}
+                      className="p-1 rounded bg-red-100 hover:bg-red-200 text-red-600"
+                      title="Cancel editing"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </>
+              ) : (
+                // View mode
+                <>
+                  <div className="flex items-center gap-1">
+                    <span>{record.units}</span>
+                    <span className="text-xs text-gray-500">units</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
+                      <Users className="w-4 h-4" />
+                      <span>{record.workerCount}</span>
+                    </div>
+                    <button
+                      onClick={() => startEditing(record)}
+                      className="p-1 rounded bg-blue-100 hover:bg-blue-200 text-blue-600"
+                      title="Edit task"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteRecord(record.id)}
+                      className="p-1 rounded bg-red-100 hover:bg-red-200 text-red-600"
+                      title="Delete task"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <div className="max-w-4xl mx-auto p-4 bg-white rounded-lg shadow">
@@ -462,73 +598,8 @@ const TaskTimer = () => {
       )}
 
       {/* Completed Tasks with Worker Count Controls and Delete Button */}
-      {records.length > 0 && (
-        <div className="mb-6">
-          <h3 className="font-bold mb-2">Completed Tasks:</h3>
-          <div className="space-y-2">
-            {records.map((record) => (
-              <div key={record.id} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                <div className="flex-1">
-                  <div>{record.task}</div>
-                  <div className="text-sm text-gray-500">
-                    {formatTime(record.duration)}
-                  </div>
-                </div>
-                <div className="flex items-center gap-4"> {/* Increased gap for better spacing */}
-                  {/* Units controls */}
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleCompletedTaskUnitsChange(record.id, record.units, -1)}
-                      className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
-                      disabled={record.units <= 0}
-                    >
-                      -
-                    </button>
-                    <div className="flex items-center gap-1 min-w-[60px] justify-center">
-                      <span>{record.units}</span>
-                      <span className="text-xs text-gray-500">units</span>
-                    </div>
-                    <button
-                      onClick={() => handleCompletedTaskUnitsChange(record.id, record.units, 1)}
-                      className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
-                    >
-                      +
-                    </button>
-                  </div>
-                  
-                  {/* Existing workers controls */}
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleCompletedTaskWorkerChange(record.id, record.workerCount, -1)}
-                      className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
-                      disabled={record.workerCount <= 1}
-                    >
-                      -
-                    </button>
-                    <div className="flex items-center gap-1">
-                      <Users className="w-4 h-4" />
-                      <span>{record.workerCount}</span>
-                    </div>
-                    <button
-                      onClick={() => handleCompletedTaskWorkerChange(record.id, record.workerCount, 1)}
-                      className="p-1 rounded bg-gray-200 hover:bg-gray-300 text-sm"
-                    >
-                      +
-                    </button>
-                    <button
-                      onClick={() => handleDeleteRecord(record.id)}
-                      className="p-1 rounded bg-red-100 hover:bg-red-200 text-red-600"
-                      title="Delete task"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {records.length > 0 && renderCompletedTasks()}
+       
 
       {/* Add Download Button at the bottom */}
       {(records.length > 0 || Object.keys(activeTasks).length > 0) && (
