@@ -73,7 +73,8 @@ const TaskTimer = () => {
   const [editingRecord, setEditingRecord] = useState(null);
   const [editValues, setEditValues] = useState({
     units: 0,
-    duration: 0
+    duration: 0,
+    workerCount: 1
   });
 
   // Auth listener
@@ -234,7 +235,8 @@ const TaskTimer = () => {
     setEditingRecord(record.id);
     setEditValues({
       units: record.units,
-      duration: record.duration
+      duration: record.duration,
+      workerCount: record.workerCount
     });
   };
 
@@ -242,7 +244,8 @@ const TaskTimer = () => {
     setEditingRecord(null);
     setEditValues({
       units: 0,
-      duration: 0
+      duration: 0,
+      workerCount: 1
     });
   };
 
@@ -251,7 +254,8 @@ const TaskTimer = () => {
       const recordRef = ref(database, `records/${recordId}`);
       await update(recordRef, {
         units: Number(editValues.units),
-        duration: Number(editValues.duration)
+        duration: Number(editValues.duration),
+        workerCount: Number(editValues.workerCount)
       });
       setEditingRecord(null);
     } catch (error) {
@@ -464,12 +468,32 @@ const TaskTimer = () => {
               {editingRecord === record.id ? (
                 // Edit mode
                 <>
-                  <input
-                    type="number"
-                    value={editValues.units}
-                    onChange={(e) => setEditValues(prev => ({ ...prev, units: e.target.value }))}
-                    className="w-20 px-2 py-1 border rounded"
-                  />
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500">Units:</span>
+                    <input
+                      type="number"
+                      value={editValues.units}
+                      onChange={(e) => setEditValues(prev => ({ 
+                        ...prev, 
+                        units: Math.max(0, parseInt(e.target.value) || 0)
+                      }))}
+                      className="w-20 px-2 py-1 border rounded"
+                      min="0"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Users className="w-4 h-4" />
+                    <input
+                      type="number"
+                      value={editValues.workerCount}
+                      onChange={(e) => setEditValues(prev => ({ 
+                        ...prev, 
+                        workerCount: Math.max(1, parseInt(e.target.value) || 1)
+                      }))}
+                      className="w-16 px-2 py-1 border rounded"
+                      min="1"
+                    />
+                  </div>
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleEditSave(record.id)}
