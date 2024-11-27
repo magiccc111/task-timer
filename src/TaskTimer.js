@@ -466,21 +466,64 @@ const TaskTimer = () => {
             
             <div className="flex items-center gap-4">
               {editingRecord === record.id ? (
-                // Edit mode
                 <>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-gray-500">Units:</span>
                     <input
                       type="number"
                       value={editValues.units}
-                      onChange={(e) => setEditValues(prev => ({ 
-                        ...prev, 
-                        units: Math.max(0, parseInt(e.target.value) || 0)
-                      }))}
+                      onChange={(e) => {
+                        let value = e.target.value;
+                        
+                        // Allow empty input for typing purposes
+                        if (value === '') {
+                          setEditValues(prev => ({ ...prev, units: value }));
+                          return;
+                        }
+
+                        // Handle decimal numbers
+                        const numValue = parseFloat(value);
+                        if (!isNaN(numValue)) {
+                          // Round to 1 decimal place
+                          const roundedValue = Math.round(numValue * 10) / 10;
+                          setEditValues(prev => ({ 
+                            ...prev, 
+                            units: roundedValue
+                          }));
+                        }
+                      }}
+                      onBlur={(e) => {
+                        // On blur, ensure we have a valid number with 1 decimal place
+                        let value = e.target.value;
+                        if (value === '' || isNaN(parseFloat(value))) {
+                          setEditValues(prev => ({ ...prev, units: 0.0 }));
+                        }
+                      }}
                       className="w-20 px-2 py-1 border rounded"
                       min="0"
                       step="0.1"
+                      lang="en" // Forces dot as decimal separator
                     />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        const newValue = Math.round((parseFloat(editValues.units) + 0.1) * 10) / 10;
+                        setEditValues(prev => ({ ...prev, units: newValue }));
+                      }}
+                      className="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded"
+                    >
+                      +0.1
+                    </button>
+                    <button
+                      onClick={() => {
+                        const newValue = Math.max(0, Math.round((parseFloat(editValues.units) - 0.1) * 10) / 10);
+                        setEditValues(prev => ({ ...prev, units: newValue }));
+                      }}
+                      className="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded"
+                    >
+                      -0.1
+                    </button>
                   </div>
                   <div className="flex items-center gap-2">
                     <Users className="w-4 h-4" />
@@ -516,7 +559,7 @@ const TaskTimer = () => {
                 // View mode
                 <>
                   <div className="flex items-center gap-1">
-                    <span>{record.units}</span>
+                  <span>{parseFloat(record.units).toFixed(1)}</span>
                     <span className="text-xs text-gray-500">units</span>
                   </div>
                   <div className="flex items-center gap-2">
