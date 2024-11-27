@@ -253,7 +253,7 @@ const TaskTimer = () => {
     try {
       const recordRef = ref(database, `records/${recordId}`);
       await update(recordRef, {
-        units: Number(editValues.units),
+        units: Number(parseFloat(editValues.units).toFixed(1)),
         duration: Number(editValues.duration),
         workerCount: Number(editValues.workerCount)
       });
@@ -392,7 +392,7 @@ const TaskTimer = () => {
     const newUnits = Math.max(0, currentUnits + delta);
     try {
       const recordRef = ref(database, `records/${recordId}`);
-      await update(recordRef, { units: newUnits });
+      await update(recordRef, { units: parseFloat(newUnits.toFixed(1)) });
     } catch (error) {
       setError(`Units update error: ${error.message}`);
     }
@@ -479,6 +479,7 @@ const TaskTimer = () => {
                       }))}
                       className="w-20 px-2 py-1 border rounded"
                       min="0"
+                      step="0.1"
                     />
                   </div>
                   <div className="flex items-center gap-2">
